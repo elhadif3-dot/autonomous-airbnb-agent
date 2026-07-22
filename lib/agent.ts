@@ -26,6 +26,7 @@ import type {
   AgentStep,
   AuditLogEntry,
   ExecuteResponse,
+  EvidenceReport,
   Listing,
   ManagerRecommendation,
   Place,
@@ -57,12 +58,15 @@ type AgentState = {
   page?: SimulatedListingPage;
   claims?: Record<string, unknown>;
   reviews?: Review[];
+  reviewSource?: "pinecone" | "csv_fallback";
+  indexedReviewTextCount?: number;
   relevantReviews?: Review[];
   places?: Place[];
   relevantPlaces?: Place[];
   signals?: Signal[];
   proposal?: EditProposal;
   managerRecommendations?: ManagerRecommendation[];
+  evidenceReport?: EvidenceReport;
   supervisor?: SupervisorOutput;
   pageUpdate?: SimulatedPageUpdate | null;
   auditLog?: AuditLogEntry | null;
@@ -84,6 +88,7 @@ const topicKeywords: Record<string, string[]> = {
   view: ["view", "views", "river", "terrace", "balcony"],
   space: ["small", "tiny", "compact", "cramped"],
   property_fixes: ["fix", "repair", "maintenance", "issue", "issues", "problem", "complaint", "bothering", "improve the property", "quality", "income", "revenue"],
+  evidence_search: ["evidence", "evidance", "avidance", "proof", "examples", "more signals", "more reviews", "find more", "show me"],
   nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
   restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"]
 };
@@ -209,6 +214,7 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
     steps,
     page_update: state.pageUpdate ?? null,
     portfolio_update: null,
+    evidence_report: state.evidenceReport ?? null,
     manager_recommendations: state.managerRecommendations ?? null,
     audit_log: state.auditLog ?? null
   };
@@ -340,12 +346,21 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
-  if (state.listing && !state.claims && !isRestoreRequest(state) && proposed.next_action !== "extract_claims") {
+  if (state.listing && !state.claims && !isRestoreRequest(state) && !needsEvidenceReport(state) && proposed.next_action !== "extract_claims") {
     return action(
       "extract_claims",
       { listing_id: state.listingId, runtime_override_from: proposed.next_action },
       "Runtime preconditions require extracting current page claims before searching for editable gaps.",
       "Current listing claims are missing."
+    );
+  }
+
+  if (state.listing && needsEvidenceReport(state) && !state.reviews && proposed.next_action !== "search_reviews") {
+    return action(
+      "search_reviews",
+      { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state), runtime_override_from: proposed.next_action },
+      "The manager asked for more review evidence only, so the agent should retrieve focused guest reviews before producing a report.",
+      "Evidence-only request needs review retrieval."
     );
   }
 
@@ -360,6 +375,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
 
   if (
     state.reviews &&
+    !needsEvidenceReport(state) &&
     needsGooglePlaces(state) &&
     !state.places &&
     proposed.next_action !== "get_google_places"
@@ -374,6 +390,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
 
   if (
     state.reviews &&
+    !needsEvidenceReport(state) &&
     (!needsGooglePlaces(state) || state.places) &&
     !state.signals &&
     proposed.next_action !== "detect_guest_signals"
@@ -388,6 +405,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
 
   if (
     state.signals &&
+    !needsEvidenceReport(state) &&
     needsManagerRecommendations(state) &&
     !state.managerRecommendations &&
     proposed.next_action !== "draft_manager_recommendations"
@@ -400,7 +418,16 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
-  if (state.signals && !needsManagerRecommendations(state) && !state.proposal && proposed.next_action !== "draft_listing_edit") {
+  if (state.reviews && needsEvidenceReport(state) && !state.evidenceReport && proposed.next_action !== "draft_evidence_report") {
+    return action(
+      "draft_evidence_report",
+      { listing_id: state.listingId, topics: state.intent, runtime_override_from: proposed.next_action },
+      "The manager asked for supporting evidence, not a page edit.",
+      "Evidence report is missing."
+    );
+  }
+
+  if (state.signals && !needsManagerRecommendations(state) && !needsEvidenceReport(state) && !state.proposal && proposed.next_action !== "draft_listing_edit") {
     return action(
       "draft_listing_edit",
       { listing_id: state.listingId, runtime_override_from: proposed.next_action },
@@ -440,7 +467,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
 }
 
 function chooseNextAction(state: AgentState): AgentNextAction {
-  if (state.stopReason || state.auditLog || state.managerRecommendations) {
+  if (state.stopReason || state.auditLog || state.managerRecommendations || state.evidenceReport) {
     return action("stop_without_action", {}, "The runtime already reached a terminal state.", "Stop execution.", true);
   }
 
@@ -462,6 +489,28 @@ function chooseNextAction(state: AgentState): AgentNextAction {
     }
 
     return action("stop_without_action", {}, "The restore request reached a terminal state.", "Stop execution.", true);
+  }
+
+  if (needsEvidenceReport(state)) {
+    if (!state.reviews) {
+      return action(
+        "search_reviews",
+        { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state) },
+        "The manager asked for more evidence, so the agent should retrieve focused Airbnb review examples rather than edit the page.",
+        "Review evidence is missing."
+      );
+    }
+
+    if (!state.evidenceReport) {
+      return action(
+        "draft_evidence_report",
+        { listing_id: state.listingId, topics: state.intent },
+        "The request is evidence-only; produce a manager-facing report and stop without Supervisor or page update.",
+        "Evidence report is missing."
+      );
+    }
+
+    return action("stop_without_action", {}, "The evidence-only request reached a terminal state.", "Stop execution.", true);
   }
 
   if (!state.claims) {
@@ -561,7 +610,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot search reviews before listing data is loaded.");
       }
 
-      const retrievalLimit = Math.max(reviewRetrievalLimit(state), state.requireMoreEvidence ? 24 : 12);
+      const retrievalLimit = Math.max(reviewRetrievalLimit(state), state.requireMoreEvidence ? 48 : 12);
       const reviewResult = await getReviewSearchResult(
         state.listing.id,
         reviewQueryForIntent(state.listing, state.intent),
@@ -571,6 +620,8 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       const relevantReviews = searchRelevantReviews(reviews, state.intent, reviewRetrievalLimit(state));
       const indexedReviewTextCount = await getReviewTextCountForListing(state.listing.id);
       state.reviews = reviews;
+      state.reviewSource = reviewResult.source;
+      state.indexedReviewTextCount = indexedReviewTextCount;
       state.relevantReviews = relevantReviews;
       steps.push(step("Review RAG", "Retrieve Airbnb guest reviews for the selected listing.", JSON.stringify(actionRequest.tool_input), {
         listing_id: state.listing.id,
@@ -682,6 +733,20 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         recommendations: state.managerRecommendations,
         editable_scope: "No page update is executed by this tool.",
         token_safety: "The tool uses already retrieved review observations and does not call live Airbnb, pricing, booking, or private-message systems."
+      }));
+      return false;
+    }
+
+    case "draft_evidence_report": {
+      if (!state.listing || !state.reviews) {
+        throw new Error("Cannot draft an evidence report before listing reviews are retrieved.");
+      }
+
+      state.evidenceReport = draftEvidenceReport(state);
+      steps.push(step("Review RAG", "Draft a manager-facing evidence report without editing the simulated listing page.", JSON.stringify(actionRequest.tool_input), {
+        evidence_report: state.evidenceReport,
+        editable_scope: "No page update is executed by this tool.",
+        token_safety: "The tool uses retrieved review observations only; it does not call Google Places, Supervisor, or page-update tools."
       }));
       return false;
     }
@@ -862,6 +927,15 @@ function inferIntent(prompt: string): string[] {
     .filter(([, keywords]) => keywords.some((keyword) => normalized.includes(keyword)))
     .map(([topic]) => topic);
 
+  if (isEvidenceOnlyPrompt(prompt)) {
+    return Array.from(
+      new Set([
+        "evidence_search",
+        ...topics.filter((topic) => !["review_alignment", "nearby_highlights", "restore_original"].includes(topic))
+      ])
+    );
+  }
+
   const broadReviewRequest =
     /\b(end to end|autonomously review|all managed|improve|gap|gaps|guest reviews|reviews and nearby|חוויית|ביקורות|פער|פערים|תשפר|תערוך)\b/i.test(prompt);
 
@@ -892,8 +966,18 @@ function inferIntent(prompt: string): string[] {
   return ["review_alignment", "location", "hills", "stairs", "noise", "wifi", "comfort", "temperature", "view"];
 }
 
+function isEvidenceOnlyPrompt(prompt: string): boolean {
+  return /\b(find|show|get|retrieve|bring|look for|can you find)\b.{0,45}\b(more\s+)?(evidence|evidance|avidance|proof|examples?|review signals?|guest signals?)\b/i.test(prompt) ||
+    /\b(more\s+)?(evidence|evidance|avidance|proof|examples?)\s+(for|about|of|to)\b/i.test(prompt) ||
+    /עוד\s+(עדויות|ראיות|דוגמאות)|תמצא\s+עוד|הוכחות/i.test(prompt);
+}
+
 function reviewRetrievalLimit(state: AgentState): number {
   if (state.requireMoreEvidence) {
+    return 48;
+  }
+
+  if (needsEvidenceReport(state)) {
     return 48;
   }
 
@@ -906,7 +990,7 @@ function reviewRetrievalLimit(state: AgentState): number {
 
 function reviewQueryForIntent(listing: Listing, intent: string[]): string {
   const topics = intent
-    .filter((topic) => topic !== "review_alignment" && topic !== "restore_original")
+    .filter((topic) => !["review_alignment", "restore_original", "evidence_search"].includes(topic))
     .slice(0, 8)
     .join(", ");
 
@@ -932,6 +1016,10 @@ function needsGooglePlaces(state: AgentState): boolean {
 
 function needsManagerRecommendations(state: AgentState): boolean {
   return state.intent.includes("property_fixes");
+}
+
+function needsEvidenceReport(state: AgentState): boolean {
+  return state.intent.includes("evidence_search");
 }
 
 function extractClaims(listing: Listing, currentDescription: string): Record<string, unknown> {
@@ -1497,6 +1585,77 @@ function draftManagerRecommendations(
   ];
 }
 
+function draftEvidenceReport(state: AgentState): EvidenceReport {
+  const reviews = state.reviews ?? [];
+  const topic = evidenceReportTopic(state.intent, state.prompt);
+  const pattern = evidencePatternForIntent(state.intent, state.prompt);
+  const matchingReviews = reviews.filter((review) => pattern.test(review.comments));
+  const fallbackReviews = state.relevantReviews?.length ? state.relevantReviews : reviews;
+  const evidenceReviews = (matchingReviews.length > 0 ? matchingReviews : fallbackReviews).slice(0, 8);
+  const matchingEvidenceCount = matchingReviews.length > 0 ? matchingReviews.length : evidenceReviews.length;
+
+  return {
+    listingId: state.listing!.id,
+    listingName: state.listing!.name,
+    topic,
+    source: state.reviewSource ?? "csv_fallback",
+    indexedReviewTextCount: state.indexedReviewTextCount ?? state.listing!.numberOfReviews,
+    retrievedReviewCount: reviews.length,
+    matchingEvidenceCount,
+    evidence: evidenceReviews.map((review) => `${review.date || "undated"}: ${excerpt(review.comments)}`),
+    conclusion:
+      matchingEvidenceCount > 0
+        ? `Found ${matchingEvidenceCount} matching review examples in the retrieved evidence sample for ${topic}. This is evidence collection only, so the simulated listing page was not edited.`
+        : `No additional matching examples were found in the retrieved evidence sample for ${topic}. The simulated listing page was not edited.`
+  };
+}
+
+function evidenceReportTopic(intent: string[], prompt: string): string {
+  if (intent.includes("wifi") || /wi-?fi|internet|connection|remote.?work/i.test(prompt)) {
+    return "Wi-Fi reliability";
+  }
+  if (intent.includes("noise")) return "Noise expectations";
+  if (intent.includes("temperature")) return "Temperature comfort";
+  if (intent.includes("stairs")) return "Access and stairs";
+  if (intent.includes("hills")) return "Historic Lisbon hills";
+  if (intent.includes("space")) return "Space expectations";
+  if (intent.includes("cleanliness")) return "Cleanliness";
+  if (intent.includes("comfort")) return "Sleep and comfort";
+  if (intent.includes("location")) return "Location and walkability";
+  return "requested guest-review signal";
+}
+
+function evidencePatternForIntent(intent: string[], prompt: string): RegExp {
+  if (intent.includes("wifi") || /wi-?fi|internet|connection|remote.?work/i.test(prompt)) {
+    return /wifi|wi-fi|internet|connection|router|remote work|work remotely/i;
+  }
+  if (intent.includes("noise")) {
+    return /\b(noisy|noise|loud|nightlife|bar|bars)\b|busy street|weekend nights/i;
+  }
+  if (intent.includes("temperature")) {
+    return /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c|\bac\b/i;
+  }
+  if (intent.includes("stairs")) {
+    return /stairs|steps|elevator|lift/i;
+  }
+  if (intent.includes("hills")) {
+    return /hill|steep|walk up|climb/i;
+  }
+  if (intent.includes("space")) {
+    return /small|tiny|compact|cramped/i;
+  }
+  if (intent.includes("cleanliness")) {
+    return /clean|spotless|well kept|tidy|dirty|dust|smell|odor/i;
+  }
+  if (intent.includes("comfort")) {
+    return /comfortable|comfy|bed|mattress|pillow|sleep/i;
+  }
+  if (intent.includes("location")) {
+    return /location|walk|walking|metro|tram|central|close|near/i;
+  }
+  return /./i;
+}
+
 function recommendationCandidate(
   topic: string,
   priority: ManagerRecommendation["priority"],
@@ -1657,6 +1816,10 @@ function finalResponse(state: AgentState): string {
     return managerRecommendationResponse(state.listing, state.managerRecommendations);
   }
 
+  if (state.evidenceReport) {
+    return evidenceReportResponse(state.evidenceReport);
+  }
+
   if (state.supervisor?.decision === "Approve" && state.pageUpdate?.status === "executed") {
     if (state.proposal?.action === "restore_original_page") {
       return [
@@ -1739,6 +1902,30 @@ function managerRecommendationResponse(listing: Listing, recommendations: Manage
   }
 
   lines.push("No live Airbnb account, pricing, bookings, private messages, guest reviews, or source CSV rows were changed.");
+  return lines.join("\n");
+}
+
+function evidenceReportResponse(report: EvidenceReport): string {
+  const lines = [
+    `Evidence report for listing ${report.listingId}: ${report.listingName}.`,
+    "",
+    `Topic checked: ${report.topic}.`,
+    `Review source: ${report.source}. The search retrieved ${report.retrievedReviewCount} relevant reviews from ${report.indexedReviewTextCount} read-only indexed review texts for this listing.`,
+    `Matching evidence found: ${report.matchingEvidenceCount} review examples.`,
+    "",
+    report.conclusion,
+    ""
+  ];
+
+  if (report.evidence.length > 0) {
+    lines.push("Review evidence examples:");
+    for (const item of report.evidence) {
+      lines.push(`- ${item}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("No page edit, Supervisor approval, audit-log page update, Google Places lookup, live Airbnb access, pricing, bookings, private messages, guest reviews, or source CSV rows were changed.");
   return lines.join("\n");
 }
 

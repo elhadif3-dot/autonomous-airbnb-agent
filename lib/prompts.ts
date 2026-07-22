@@ -6,7 +6,7 @@ export const LISTING_EDITOR_SYSTEM_PROMPT = [
   "",
   "Available tool families:",
   "- Listing Tools: get_listing_data, extract_claims",
-  "- Review RAG: search_reviews, detect_guest_signals",
+  "- Review RAG: search_reviews, detect_guest_signals, draft_evidence_report",
   "- Google Places Context: get_google_places",
   "- Edit & Decision Tools: draft_listing_edit, draft_manager_recommendations, prepare_edit_proposal, restore_original_page, stop_without_action, replan",
   "- Supervisor handoff: submit_to_supervisor",
@@ -26,6 +26,7 @@ export const LISTING_EDITOR_SYSTEM_PROMPT = [
   "- Never invent amenities, facts, or claims.",
   "- Do not edit pricing, availability, policies, private messages, or live Airbnb accounts.",
   "- Manager recommendations may suggest property improvements from guest reviews, but they do not update the simulated page.",
+  "- Evidence-report requests ask for more proof or examples only; they must not edit the simulated page.",
   "- If the request is outside Lisbon Airbnb listing-page management, say that you do not know how to complete it with your allowed tools and stop.",
   "- If evidence is weak, stop without action.",
   "- Any proposed page update must be narrow, factual, and sent to the Supervisor / Control Agent."

@@ -55,6 +55,7 @@ export type ExecuteResponse = {
   page_update?: SimulatedPageUpdate | null;
   portfolio_update?: PortfolioUpdate | null;
   manager_recommendations?: ManagerRecommendation[] | null;
+  evidence_report?: EvidenceReport | null;
   audit_log?: AuditLogEntry | null;
 };
 
@@ -88,6 +89,18 @@ export type ManagerRecommendation = {
   businessValue: string;
   evidenceCount: number;
   evidence: string[];
+};
+
+export type EvidenceReport = {
+  listingId: string;
+  listingName: string;
+  topic: string;
+  source: "pinecone" | "csv_fallback";
+  indexedReviewTextCount: number;
+  retrievedReviewCount: number;
+  matchingEvidenceCount: number;
+  evidence: string[];
+  conclusion: string;
 };
 
 export type SimulatedListingPage = {

@@ -647,6 +647,25 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
         </div>
       ) : null}
 
+      {result.evidence_report ? (
+        <div className="auditBox">
+          <h4>Evidence report</h4>
+          <p>
+            The agent gathered read-only guest-review evidence for <b>{result.evidence_report.topic}</b> and did not edit the simulated page.
+          </p>
+          <p>
+            Retrieved {result.evidence_report.retrievedReviewCount} relevant reviews from {result.evidence_report.indexedReviewTextCount} indexed review texts. Matching evidence found: {result.evidence_report.matchingEvidenceCount}.
+          </p>
+          <div className="recommendationList">
+            {result.evidence_report.evidence.map((item, index) => (
+              <article className="recommendationItem" key={`${result.evidence_report?.topic}-${index}`}>
+                <p>{item}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {result.portfolio_update ? (
         <div className="auditBox">
           <h4>Portfolio result</h4>
@@ -860,6 +879,15 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
       title: "Drafted manager recommendations",
       status: `${response.recommendations.length} recommendations`,
       rationale: "The request asked for fixable property or operations issues, so the agent produced manager-facing advice instead of editing the page.",
+      observation: stringValue(response.editable_scope)
+    };
+  }
+
+  if (isRecord(response.evidence_report)) {
+    return {
+      title: "Drafted evidence report",
+      status: `${numberValue(response.evidence_report.matchingEvidenceCount) ?? 0} matching examples`,
+      rationale: "The request asked for more evidence, so the agent reported review examples instead of editing the page.",
       observation: stringValue(response.editable_scope)
     };
   }

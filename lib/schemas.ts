@@ -28,6 +28,7 @@ export const ALLOWED_TOOL_NAMES = [
   "search_reviews",
   "detect_guest_signals",
   "get_google_places",
+  "draft_evidence_report",
   "draft_listing_edit",
   "draft_manager_recommendations",
   "prepare_edit_proposal",
