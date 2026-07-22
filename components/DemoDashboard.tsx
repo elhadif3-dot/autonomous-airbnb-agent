@@ -39,15 +39,27 @@ type Props = {
   listings: DemoListing[];
 };
 
-const samplePrompts = [
-  "Find positive nearby highlights that are missing from the listing page and add only evidence-backed text.",
-  "Check this listing for gaps between guest reviews and the current page. If there is a justified edit, update the simulated page.",
-  "Review whether the listing overpromises quietness or location convenience. Edit only if the evidence is strong."
+const promptExamples = [
+  {
+    label: "Add nearby highlights",
+    hint: "Use reviews + Lisbon context",
+    prompt: "Find positive nearby highlights that are missing from the listing page and add only evidence-backed text."
+  },
+  {
+    label: "Find listing gaps",
+    hint: "Compare page vs reviews",
+    prompt: "Check this listing for gaps between guest reviews and the current page. If there is a justified edit, update the simulated page."
+  },
+  {
+    label: "Check quiet claims",
+    hint: "Edit only with strong evidence",
+    prompt: "Review whether the listing overpromises quietness or location convenience. Edit only if the evidence is strong."
+  }
 ];
 
 export function DemoDashboard({ listings }: Props) {
   const [selectedId, setSelectedId] = useState(listings[0]?.id ?? "");
-  const [prompt, setPrompt] = useState(samplePrompts[0]);
+  const [prompt, setPrompt] = useState(promptExamples[0].prompt);
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
@@ -278,25 +290,30 @@ function AgentFeatureBar({
   return (
     <section className="agentDock">
       <div className="agentDockIntro">
+        <div className="agentIconBubble">
+          <MessageSquareText size={20} />
+        </div>
         <div>
           <span className="agentEyebrow">Autonomous Listing Editor</span>
-          <h2>Ask the agent to improve the simulated listing page</h2>
-          <p>
-            The page starts from the Airbnb dataset. The agent may update only the simulated page text and must explain what changed.
-          </p>
+          <h2>Improve this listing page</h2>
+          <p>Ask for an evidence-backed page edit. The source data stays read-only.</p>
         </div>
-        <MessageSquareText size={24} />
       </div>
 
       <div className="promptExamples">
-        {samplePrompts.map((example) => (
-          <button type="button" key={example} onClick={() => setPrompt(example)}>
-            {example}
+        {promptExamples.map((example) => (
+          <button type="button" key={example.label} onClick={() => setPrompt(example.prompt)}>
+            <strong>{example.label}</strong>
+            <span>{example.hint}</span>
           </button>
         ))}
       </div>
 
+      <label className="promptLabel" htmlFor="agent-prompt">
+        Open request
+      </label>
       <textarea
+        id="agent-prompt"
         className="promptBox"
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
@@ -305,11 +322,11 @@ function AgentFeatureBar({
 
       <div className="scopeBox">
         <div>
-          <strong>Editable in demo</strong>
+          <strong>Can edit</strong>
           <span>Description, guest expectation notes, nearby highlights text</span>
         </div>
         <div>
-          <strong>Read-only sources</strong>
+          <strong>Read-only</strong>
           <span>Reviews, original CSV data, prices, bookings, Google Places source rows</span>
         </div>
       </div>
