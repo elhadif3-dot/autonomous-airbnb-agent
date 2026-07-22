@@ -86,9 +86,9 @@ function promptExamples(listingName: string) {
       prompt: `For "${listingName}", focus only on gaps between the current page and guest reviews. Decide which review-backed gap matters most for booking expectations, edit the simulated description only if the evidence is strong, and explain why that change improves the page.`
     },
     {
-      label: "Nearby within 1 km",
-      hint: "Names, ratings, reviews, distance",
-      prompt: `For "${listingName}", focus only on nearby guest value within about 1 km. Use Airbnb location reviews as the primary evidence and Google Places only for supporting names, ratings, Google review counts, and approximate distance. Edit the simulated description only if the nearby value is useful and evidence-backed.`
+      label: "Nearby places within 1 km",
+      hint: "Google rating, reviews, distance",
+      prompt: `For "${listingName}", focus only on nearby places worth highlighting within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance from the listing. Do not search for general review gaps. If there are places strong enough to help sell the stay, add a concise natural sentence to the simulated description with the place names, ratings, Google review counts, and approximate distance. If no nearby place is strong enough, stop without editing.`
     },
     {
       label: "Polish listing copy",
@@ -99,11 +99,6 @@ function promptExamples(listingName: string) {
       label: "Find property fixes",
       hint: "Recommend fixes from guest complaints",
       prompt: `For "${listingName}", do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.`
-    },
-    {
-      label: "Find more evidence",
-      hint: "Gather review examples, no page edit",
-      prompt: `For "${listingName}", can you find more evidence for a repeated guest issue, especially Wi-Fi, noise, temperature, stairs, space, or comfort? Return review examples only and do not edit the simulated page.`
     },
     {
       label: "Undo last page edit",
