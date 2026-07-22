@@ -944,7 +944,7 @@ function normalizeName(value: string): string {
 function inferIntent(prompt: string): string[] {
   const normalized = prompt.toLowerCase();
   const topics = Object.entries(topicKeywords)
-    .filter(([, keywords]) => keywords.some((keyword) => normalized.includes(keyword)))
+    .filter(([, keywords]) => keywords.some((keyword) => promptHasKeyword(normalized, keyword)))
     .map(([topic]) => topic);
 
   if (isEvidenceOnlyPrompt(prompt)) {
@@ -1002,6 +1002,19 @@ function isEvidenceOnlyPrompt(prompt: string): boolean {
     /\b(return|give|list|show)\b.{0,40}\b(review\s+)?examples?\b.{0,60}\b(do not edit|without editing|no page edit|only)\b/i.test(prompt) ||
     /\b(more\s+)?(evidence|evidance|avidance|proof|examples?)\s+(for|about|of|to)\b/i.test(prompt) ||
     /עוד\s+(עדויות|ראיות|דוגמאות)|תמצא\s+עוד|הוכחות/i.test(prompt);
+}
+
+function promptHasKeyword(normalizedPrompt: string, keyword: string): boolean {
+  const normalizedKeyword = keyword.toLowerCase();
+  if (/^[a-z0-9-]+$/.test(normalizedKeyword) && normalizedKeyword.length <= 5) {
+    return new RegExp(`\\b${escapeRegex(normalizedKeyword)}\\b`, "i").test(normalizedPrompt);
+  }
+
+  return normalizedPrompt.includes(normalizedKeyword);
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isReviewOnlyPrompt(prompt: string): boolean {
