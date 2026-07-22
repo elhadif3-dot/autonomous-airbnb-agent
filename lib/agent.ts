@@ -51,6 +51,7 @@ type AgentState = {
   intent: string[];
   selectedActions: string[];
   observations: string[];
+  deterministicPlanner?: boolean;
   listing?: Listing;
   page?: SimulatedListingPage;
   claims?: Record<string, unknown>;
@@ -180,7 +181,11 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
       step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
         ...parsedAction,
         action_number: iteration + 1,
-        llm_mode: process.env.LLM_MODE === "live" ? "live_requested" : "mock"
+        llm_mode: state.deterministicPlanner
+          ? "deterministic_policy"
+          : process.env.LLM_MODE === "live"
+            ? "live_requested"
+            : "mock"
       })
     );
 
@@ -238,6 +243,7 @@ async function executePortfolioAgent(
       intent: inferIntent(listingPrompt),
       selectedActions: [],
       observations: [],
+      deterministicPlanner: true,
       reviseCount: 0,
       requireMoreEvidence: false
     };
@@ -300,6 +306,10 @@ async function executePortfolioAgent(
 
 async function decideNextAction(state: AgentState): Promise<AgentNextAction> {
   const mockResponse = chooseNextAction(state);
+
+  if (state.deterministicPlanner) {
+    return enforceActionPreconditions(state, mockResponse);
+  }
 
   const response = await callLlmJson<AgentNextAction>({
     module: "Autonomous Listing Editor Agent",
@@ -1615,6 +1625,7 @@ function summarizeState(state: AgentState): string {
     listing_id: state.listingId,
     intent: state.intent,
     selected_actions_so_far: state.selectedActions,
+    deterministic_planner: Boolean(state.deterministicPlanner),
     has_listing: Boolean(state.listing),
     has_claims: Boolean(state.claims),
     has_review_observations: Boolean(state.relevantReviews),

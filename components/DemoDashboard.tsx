@@ -151,38 +151,70 @@ export function DemoDashboard({ initialListings, listingOptions, managedCount, t
       return values;
     }, {});
 
-    const response = await fetch("/api/execute", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
-        current_page_description: currentDescription,
-        portfolio_page_descriptions: portfolioPageDescriptions
-      })
-    });
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 90000);
 
-    const payload = (await response.json()) as ExecuteResponse;
-    setResult(payload);
-    if (payload.page_update?.status === "executed" && payload.page_update.after) {
-      setSimulatedDescriptions((current) => ({
-        ...current,
-        [payload.page_update!.listingId]: payload.page_update!.after!
-      }));
-    }
-    if (payload.portfolio_update?.results) {
-      setSimulatedDescriptions((current) => {
-        const next = { ...current };
-        for (const item of payload.portfolio_update?.results ?? []) {
-          if (item.status === "executed" && item.after) {
-            next[item.listingId] = item.after;
-          }
-        }
-        return next;
+    try {
+      const response = await fetch("/api/execute", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
+          current_page_description: currentDescription,
+          portfolio_page_descriptions: portfolioPageDescriptions
+        })
       });
+
+      const payload = (await response.json().catch(() => ({
+        status: "error",
+        error: `The agent returned HTTP ${response.status}, but the response body was not valid JSON.`,
+        response: null,
+        steps: [],
+        page_update: null,
+        portfolio_update: null,
+        audit_log: null
+      }))) as ExecuteResponse;
+
+      setResult(payload);
+      if (payload.page_update?.status === "executed" && payload.page_update.after) {
+        setSimulatedDescriptions((current) => ({
+          ...current,
+          [payload.page_update!.listingId]: payload.page_update!.after!
+        }));
+      }
+      if (payload.portfolio_update?.results) {
+        setSimulatedDescriptions((current) => {
+          const next = { ...current };
+          for (const item of payload.portfolio_update?.results ?? []) {
+            if (item.status === "executed" && item.after) {
+              next[item.listingId] = item.after;
+            }
+          }
+          return next;
+        });
+      }
+    } catch (error) {
+      const timedOut = error instanceof Error && error.name === "AbortError";
+      setResult({
+        status: "error",
+        error: timedOut
+          ? "The agent request took more than 90 seconds and was stopped in the demo UI. Try a single listing request or rerun after the current deployment is ready."
+          : error instanceof Error
+            ? error.message
+            : "The agent request failed before a response was received.",
+        response: null,
+        steps: [],
+        page_update: null,
+        portfolio_update: null,
+        audit_log: null
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+      setIsRunning(false);
     }
-    setIsRunning(false);
   }
 
   async function resetPage() {
