@@ -1003,7 +1003,9 @@ function isEvidenceOnlyPrompt(prompt: string): boolean {
 }
 
 function isReviewOnlyPrompt(prompt: string): boolean {
-  return /\b(review|reviews|guest reviews)\b.{0,45}\b(only|without google places|do not use google places|no nearby context)\b/i.test(prompt) ||
+  return /\b(guest\s+reviews|reviews)\s+only\b/i.test(prompt) ||
+    /\bonly\s+(?:the\s+)?(?:guest\s+)?reviews\b/i.test(prompt) ||
+    /\b(without google places|do not use google places|no nearby context)\b/i.test(prompt) ||
     /\bfocus only on gaps between\b.{0,80}\bguest reviews\b/i.test(prompt);
 }
 
