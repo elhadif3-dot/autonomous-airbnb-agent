@@ -118,3 +118,5 @@ Metadata:
 - Do not let Google Places alone justify a guest-experience correction.
 - Send only top-k evidence snippets to the LLM.
 - Keep `/api/execute` under Vercel's 300 second limit.
+- Never fallback to another listing when a listing id is missing or invalid.
+- Approved actions must update `simulated_listing_pages` and create an `audit_logs` row.

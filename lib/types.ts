@@ -52,6 +52,38 @@ export type ExecuteResponse = {
   error: string | null;
   response: string | null;
   steps: AgentStep[];
+  page_update?: SimulatedPageUpdate | null;
+  audit_log?: AuditLogEntry | null;
 };
 
 export type SupervisorDecision = "Approve" | "Revise" | "Block";
+
+export type SimulatedListingPage = {
+  listingId: string;
+  currentDescription: string;
+  updatedAt: string;
+};
+
+export type SimulatedPageUpdate = {
+  listingId: string;
+  status: "executed" | "not_executed";
+  field: "description" | null;
+  before: string | null;
+  after: string | null;
+  addedText: string | null;
+};
+
+export type AuditLogEntry = {
+  id: string;
+  listingId: string;
+  listingName: string;
+  managerPrompt: string;
+  decision: SupervisorDecision;
+  selectedActions: string[];
+  evidenceSummary: unknown;
+  proposal: unknown;
+  supervisorRationale: string;
+  executedInDemoEnvironment: boolean;
+  liveAirbnbUpdated: false;
+  createdAt: string;
+};

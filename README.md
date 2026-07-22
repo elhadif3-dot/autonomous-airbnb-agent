@@ -19,6 +19,7 @@ The agent follows a ReAct-style loop:
 `Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop`
 
 Actual page edits are executed only after `Supervisor / Control Agent` approval.
+Approved edits update the simulated listing page state and create an audit-log entry.
 
 ## Required API
 
@@ -26,6 +27,12 @@ Actual page edits are executed only after `Supervisor / Control Agent` approval.
 - `GET /api/agent_info`
 - `GET /api/model_architecture`
 - `POST /api/execute`
+
+Additional demo inspection endpoints:
+
+- `GET /api/listing_page?id=<listing_id>`
+- `GET /api/audit_logs?listing_id=<listing_id>`
+- `POST /api/demo_reset`
 
 `POST /api/execute` returns the required project schema. The field is named `steps`
 because the project API requires it, but conceptually it is the agent action/tool trace:
@@ -47,3 +54,8 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+## Token Usage
+
+The project is currently LLM-ready but runs in `LLM_MODE=mock`.
+No LLMod.ai calls are made unless `LLM_MODE=live` is explicitly enabled and the project owner approves token usage.

@@ -18,6 +18,7 @@ export function DemoDashboard({ listings }: Props) {
   const [prompt, setPrompt] = useState(samplePrompts[0]);
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
 
   const selectedListing = useMemo(
     () => listings.find((listing) => listing.id === selectedId) ?? listings[0],
@@ -44,7 +45,33 @@ export function DemoDashboard({ listings }: Props) {
 
     const payload = (await response.json()) as ExecuteResponse;
     setResult(payload);
+    if (payload.page_update?.status === "executed" && payload.page_update.after) {
+      setSimulatedDescriptions((current) => ({
+        ...current,
+        [payload.page_update!.listingId]: payload.page_update!.after!
+      }));
+    }
     setIsRunning(false);
+  }
+
+  async function resetPage() {
+    if (!selectedListing) {
+      return;
+    }
+
+    const response = await fetch("/api/demo_reset", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ listing_id: selectedListing.id })
+    });
+    const payload = (await response.json()) as { page?: { currentDescription: string } };
+    setSimulatedDescriptions((current) => ({
+      ...current,
+      [selectedListing.id]: payload.page?.currentDescription ?? selectedListing.description
+    }));
+    setResult(null);
   }
 
   if (!selectedListing) {
@@ -101,7 +128,9 @@ export function DemoDashboard({ listings }: Props) {
                 <Metric label="POIs" value={String(selectedListing.nearbyPlacesCount)} />
               </div>
 
-              <div className="description">{selectedListing.description}</div>
+              <div className="description">
+                {simulatedDescriptions[selectedListing.id] ?? selectedListing.description}
+              </div>
 
               <div className="chips">
                 {selectedListing.amenities.slice(0, 8).map((amenity) => (
@@ -137,6 +166,9 @@ export function DemoDashboard({ listings }: Props) {
                   onClick={() => setPrompt(samplePrompts[(samplePrompts.indexOf(prompt) + 1) % samplePrompts.length] ?? samplePrompts[0])}
                 >
                   Swap Prompt
+                </button>
+                <button className="ghostButton" type="button" onClick={resetPage}>
+                  Reset Page
                 </button>
               </div>
 
@@ -175,6 +207,35 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
         {decision ? <span className={`decision ${decision.toLowerCase()}`}>{decision}</span> : null}
         <p>{result.response ?? result.error}</p>
       </div>
+
+      {result.page_update ? (
+        <div className="auditBox">
+          <h4>Simulated Page Update</h4>
+          <p>Status: {result.page_update.status}</p>
+          {result.page_update.status === "executed" ? (
+            <div className="diffGrid">
+              <div>
+                <strong>Before</strong>
+                <p>{result.page_update.before}</p>
+              </div>
+              <div>
+                <strong>After</strong>
+                <p>{result.page_update.after}</p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {result.audit_log ? (
+        <div className="auditBox">
+          <h4>Audit Log</h4>
+          <p>
+            {result.audit_log.createdAt} · {result.audit_log.decision} · liveAirbnbUpdated=
+            {String(result.audit_log.liveAirbnbUpdated)}
+          </p>
+        </div>
+      ) : null}
 
       <div className="stepList">
         {result.steps.map((step, index) => (

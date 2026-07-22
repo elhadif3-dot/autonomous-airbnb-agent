@@ -349,6 +349,28 @@ button {
   white-space: pre-wrap;
 }
 
+.diffGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.diffGrid > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: white;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.diffGrid strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--teal-strong);
+}
+
 .stepList {
   display: grid;
   gap: 10px;
@@ -428,7 +450,8 @@ button {
   }
 
   .listingList,
-  .metrics {
+  .metrics,
+  .diffGrid {
     grid-template-columns: 1fr;
   }
 

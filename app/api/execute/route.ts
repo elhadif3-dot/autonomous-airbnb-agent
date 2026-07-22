@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     }
 
     const result = await executeListingAgent(body.prompt);
-    return Response.json(result);
+    return Response.json(result, { status: result.status === "error" ? 400 : 200 });
   } catch {
     const response: ExecuteResponse = {
       status: "error",
