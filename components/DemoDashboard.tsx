@@ -39,6 +39,15 @@ type Props = {
   listings: DemoListing[];
 };
 
+type TraceSummary = {
+  title: string;
+  action?: string;
+  rationale?: string;
+  observation?: string;
+  decision?: string;
+  status?: string;
+};
+
 const defaultPrompt =
   "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
 
@@ -348,7 +357,7 @@ function AgentFeatureBar({
 
       <div className="agentActions">
         <button className="primaryButton" type="button" onClick={runAgent} disabled={isRunning}>
-          {isRunning ? "Running..." : "Run Autonomous Agent"}
+          {isRunning ? "Running..." : "Run Agent"}
         </button>
         <button className="ghostButton" type="button" onClick={resetPage}>
           Reset Page
@@ -514,14 +523,35 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
       ) : null}
 
       <div className="stepList">
-        {result.steps.map((step, index) => (
-          <details className="stepBox" key={`${step.module}-${index}`} open={index === 0 || step.module.includes("Supervisor")}>
+        <h4>Action Trace</h4>
+        {result.steps.map((step, index) => {
+          const summary = summarizeTraceStep(step);
+
+          return (
+          <details
+            className="stepBox"
+            key={`${step.module}-${index}`}
+            open={index < 2 || step.module.includes("Supervisor") || index === result.steps.length - 1}
+          >
             <summary>
-              Action {index + 1}: {step.module}
+              <span>Action {index + 1}</span>
+              <strong>{summary.title}</strong>
             </summary>
-            <pre>{JSON.stringify(step, null, 2)}</pre>
+            <div className="traceSummary">
+              <div className="traceModule">{step.module}</div>
+              {summary.action ? <div>Selected action: <strong>{summary.action}</strong></div> : null}
+              {summary.decision ? <div>Supervisor decision: <strong>{summary.decision}</strong></div> : null}
+              {summary.status ? <div>Status: <strong>{summary.status}</strong></div> : null}
+              {summary.rationale ? <p>{summary.rationale}</p> : null}
+              {summary.observation ? <p>{summary.observation}</p> : null}
+            </div>
+            <details className="rawStep">
+              <summary>Raw API step payload</summary>
+              <pre>{JSON.stringify(step, null, 2)}</pre>
+            </details>
           </details>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -595,6 +625,154 @@ function getEvidenceTopics(proposal: unknown): string[] {
   }
 
   return value.evidence_topics.filter((topic): topic is string => typeof topic === "string");
+}
+
+function summarizeTraceStep(step: AgentStep): TraceSummary {
+  const response = isRecord(step.response) ? step.response : {};
+
+  if (typeof response.next_action === "string") {
+    return {
+      title: labelFromSnake(response.next_action),
+      action: response.next_action,
+      rationale: stringValue(response.short_rationale),
+      observation: stringValue(response.state_update)
+    };
+  }
+
+  if (typeof response.decision === "string") {
+    return {
+      title: `Supervisor ${response.decision}`,
+      decision: response.decision,
+      rationale: stringValue(response.rationale),
+      observation: summarizeGuardrails(response.guardrails)
+    };
+  }
+
+  if (isRecord(response.page_update)) {
+    return {
+      title: response.page_update.status === "executed" ? "Executed approved page update" : "No page update executed",
+      status: stringValue(response.page_update.status),
+      observation: isRecord(response.audit_log)
+        ? `Audit log recorded for ${stringValue(response.audit_log.listingName) ?? "the selected listing"}.`
+        : "The simulated page state was handled according to the Supervisor decision."
+    };
+  }
+
+  if (isRecord(response.proposed_action)) {
+    return {
+      title: labelFromSnake(stringValue(response.proposed_action.action) ?? "Prepared page action"),
+      action: stringValue(response.proposed_action.action),
+      rationale: stringValue(response.proposed_action.reason),
+      observation: `Target fields: ${arrayOfStrings(response.proposed_action.target_fields).join(", ") || "none"}.`
+    };
+  }
+
+  if (typeof response.found === "boolean") {
+    return {
+      title: response.found ? "Loaded selected listing" : "Listing not found",
+      status: response.found ? "found" : "not found",
+      observation: response.found
+        ? `${stringValue(response.listing_name) ?? "Selected listing"} was loaded.`
+        : stringValue(response.safety_note)
+    };
+  }
+
+  if (Array.isArray(response.retrieved_reviews)) {
+    return {
+      title: "Retrieved guest review evidence",
+      status: `${response.retrieved_reviews.length} relevant reviews`,
+      observation: `${numberValue(response.total_reviews_available) ?? "Multiple"} total Airbnb reviews are available for this listing.`
+    };
+  }
+
+  if (Array.isArray(response.nearby_places)) {
+    return {
+      title: "Retrieved Google Places context",
+      status: `${response.nearby_places.length} nearby places`,
+      observation: stringValue(response.context_rule)
+    };
+  }
+
+  if (Array.isArray(response.signals)) {
+    const topics = response.signals
+      .filter(isRecord)
+      .map((signal) => stringValue(signal.topic))
+      .filter((topic): topic is string => Boolean(topic));
+    return {
+      title: "Detected guest signals",
+      status: topics.join(", ") || "No strong signal",
+      observation: summarizeValidation(response.validation)
+    };
+  }
+
+  if (isRecord(response.current_claims)) {
+    return {
+      title: "Extracted editable page claims",
+      observation: "The agent inspected the current simulated listing text before deciding whether an edit is justified."
+    };
+  }
+
+  if (isRecord(response.audit_log)) {
+    return {
+      title: "Stopped without page edit",
+      observation: "The agent wrote an audit log and left the simulated listing page unchanged."
+    };
+  }
+
+  return {
+    title: step.module,
+    observation: "Observation recorded."
+  };
+}
+
+function summarizeGuardrails(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  if (value.passed === true) {
+    return "Runtime guardrails passed.";
+  }
+
+  const violations = arrayOfStrings(value.violations);
+  return violations.length > 0 ? `Guardrails blocked: ${violations.join(", ")}.` : undefined;
+}
+
+function summarizeValidation(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const primaryEvidence = numberValue(value.strongest_primary_evidence_count);
+  if (value.passed === true) {
+    return `Evidence validation passed with ${primaryEvidence ?? "sufficient"} primary review signals.`;
+  }
+
+  return "Evidence validation did not justify an unsafe or unsupported edit.";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function arrayOfStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function labelFromSnake(value: string): string {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function amenityIcon(amenity: string) {
