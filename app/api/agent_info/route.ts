@@ -94,6 +94,40 @@ export function GET() {
         ]
       },
       {
+        prompt:
+          "Selected listing id: 45855270\nFor Rossio Garden Hotel, can you find more evidence for Wi-Fi reliability? Return review examples only and do not edit the simulated page.",
+        full_response:
+          "The agent retrieved focused review evidence, returned a read-only evidence report, and stopped without Google Places, Supervisor approval, or page update.",
+        steps: [
+          {
+            module: "Review RAG",
+            prompt: {
+              system_prompt: "Retrieve focused Airbnb guest-review evidence for the selected listing.",
+              user_prompt: "Find more evidence for Wi-Fi reliability."
+            },
+            response: {
+              retrieved_review_count: 48,
+              indexed_review_texts_available: 1909,
+              retrieval_note: "Pinecone searches the full review namespace filtered by listing_id, then returns relevant evidence for the current action."
+            }
+          },
+          {
+            module: "Review RAG",
+            prompt: {
+              system_prompt: "Draft a manager-facing evidence report without editing the simulated listing page.",
+              user_prompt: "Retrieved Wi-Fi evidence."
+            },
+            response: {
+              evidence_report: {
+                topic: "Wi-Fi reliability",
+                matchingEvidenceCount: 5
+              },
+              editable_scope: "No page update is executed by this tool."
+            }
+          }
+        ]
+      },
+      {
         prompt: "Selected listing id: 45855270\nFind me car tires in Lisbon.",
         full_response:
           "I don't know how to complete that request with my allowed tools. No LLM, RAG, Google Places, or page edit was used.",

@@ -25,6 +25,7 @@ Actual page edits are executed only after `Supervisor / Control Agent` approval.
 Approved edits update the simulated listing page state and create an audit-log entry.
 Manager prompts can also ask the agent to restore the simulated page to the original dataset text; that restore path uses a different action trace and still requires Supervisor approval.
 Manager insight prompts can ask what fixable property or operations issues guests mention. That action returns recommendations only; it does not edit the listing page and does not require live Airbnb access.
+Evidence-only prompts can ask for more review examples about a suspected issue. That action searches the review index and returns a read-only evidence report without Google Places, Supervisor approval, or page edits.
 
 ## Required API
 

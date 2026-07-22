@@ -88,6 +88,11 @@ function promptExamples(listingName: string) {
       prompt: `For "${listingName}", do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.`
     },
     {
+      label: "Find more evidence",
+      hint: "Gather review examples, no page edit",
+      prompt: `For "${listingName}", can you find more evidence for a repeated guest issue, especially Wi-Fi, noise, temperature, stairs, space, or comfort? Return review examples only and do not edit the simulated page.`
+    },
+    {
       label: "Undo last page edit",
       hint: "Restore original dataset text",
       prompt: `I did not like the simulated edit on "${listingName}". Restore this listing page to the original dataset text and record what you restored.`
