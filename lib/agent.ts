@@ -118,7 +118,7 @@ const topicKeywords: Record<string, string[]> = {
   nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
   restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"],
   restore_previous: ["previous version", "previous text", "last version", "last edit", "one version back"],
-  copy_polish: ["polish", "rewrite", "make natural", "more natural", "stronger copy", "marketing copy", "persuasive", "wording", "tone", "more attractive", "sell better"]
+  copy_polish: ["polish", "rewrite", "make natural", "more natural", "stronger copy", "marketing copy", "persuasive", "wording", "tone", "sell better"]
 };
 
 const MAX_ACTIONS = 16;
@@ -1119,7 +1119,7 @@ function inferIntent(prompt: string): string[] {
       new Set([
         "nearby_highlights",
         "location",
-        ...topics.filter((topic) => !["review_alignment", "evidence_search", "restore_original"].includes(topic))
+        ...topics.filter((topic) => !["review_alignment", "evidence_search", "restore_original", "copy_polish"].includes(topic))
       ])
     );
   }
@@ -1939,6 +1939,20 @@ function draftEdit(
   }
 
   const selectedSignals = selectSignalsForEdit(editableSignals);
+  if (nearbyPlacesOnly) {
+    const places = uniqueFormattedGooglePlaces(selectedSignals.flatMap((signal) => signal.evidence)).slice(0, 4);
+    if (places.length > 0) {
+      return {
+        action: "prepare_edit_proposal",
+        target_fields: ["description"],
+        listing_id: listing.id,
+        proposed_description_addition: `Nearby highlights include ${places.join(", ")}, giving guests strong nearby options within the requested area.`,
+        proposed_description_replacement: null,
+        evidence_topics: selectedSignals.map((signal) => signal.topic)
+      };
+    }
+  }
+
   const additions = selectedSignals.map((signal) => {
     if (signal.topic === "Historic Lisbon hills") {
       return "A great fit for guests who want to explore historic Lisbon on foot; some nearby streets are steep, so comfortable walking shoes are recommended.";
@@ -2171,6 +2185,21 @@ function selectSignalsForEdit(signals: Signal[]): Signal[] {
 
 function isFormattedGooglePlace(value: string): boolean {
   return /\bGoogle reviews\b/i.test(value) || /\b\/5\b/i.test(value);
+}
+
+function uniqueFormattedGooglePlaces(values: string[]): string[] {
+  const seen = new Set<string>();
+  const places: string[] = [];
+
+  for (const value of values.filter(isFormattedGooglePlace)) {
+    const key = value.split("(")[0]?.trim().toLowerCase() || value.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      places.push(value);
+    }
+  }
+
+  return places;
 }
 
 function signalPriority(signal: Signal): number {
@@ -2745,7 +2774,20 @@ function isRestoreOriginalRequest(state: AgentState): boolean {
 }
 
 function isCopyPolishRequest(state: AgentState): boolean {
-  return state.intent.includes("copy_polish") || /\b(polish|rewrite|make natural|more natural|stronger copy|marketing copy|persuasive|wording|tone|more attractive|sell better)\b/i.test(state.prompt);
+  const nearbyPlacesRequest =
+    state.intent.includes("nearby_highlights") &&
+    /\b(nearby places|google places|within\s+(?:about\s+)?\d+(?:\.\d+)?\s*(?:km|kilometers?)|rating|google review count)\b/i.test(
+      state.prompt
+    );
+  const explicitCopyPolish = /\b(polish|rewrite|make natural|more natural|stronger copy|marketing copy|persuasive copy|copy wording|wording|tone|sell better)\b/i.test(
+    state.prompt
+  );
+
+  if (nearbyPlacesRequest && !explicitCopyPolish) {
+    return false;
+  }
+
+  return state.intent.includes("copy_polish") || explicitCopyPolish;
 }
 
 function isPortfolioRequest(prompt: string): boolean {
