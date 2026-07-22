@@ -7,3 +7,6 @@ dist/
 .env.*.local
 *.log
 _archive_not_used_for_short_rentals/
+
+.vercel
+.env*

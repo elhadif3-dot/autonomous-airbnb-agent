@@ -2,13 +2,28 @@ import { executeListingAgentWithOptions } from "@/lib/agent";
 import type { ExecuteResponse } from "@/lib/types";
 
 export async function POST(request: Request) {
-  try {
-    const body = (await request.json()) as {
-      prompt?: unknown;
-      current_page_description?: unknown;
-      portfolio_page_descriptions?: unknown;
-    };
+  let body: {
+    prompt?: unknown;
+    current_page_description?: unknown;
+    portfolio_page_descriptions?: unknown;
+  };
 
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    const response: ExecuteResponse = {
+      status: "error",
+      error: "Invalid JSON request body.",
+      response: null,
+      steps: [],
+      page_update: null,
+      portfolio_update: null,
+      audit_log: null
+    };
+    return Response.json(response, { status: 400 });
+  }
+
+  try {
     if (typeof body.prompt !== "string" || body.prompt.trim().length === 0) {
       const response: ExecuteResponse = {
         status: "error",
@@ -30,10 +45,10 @@ export async function POST(request: Request) {
         : undefined
     });
     return Response.json(result, { status: result.status === "error" ? 400 : 200 });
-  } catch {
+  } catch (error) {
     const response: ExecuteResponse = {
       status: "error",
-      error: "Invalid JSON request body.",
+      error: error instanceof Error ? `Agent execution failed: ${error.message}` : "Agent execution failed.",
       response: null,
       steps: [],
       page_update: null,

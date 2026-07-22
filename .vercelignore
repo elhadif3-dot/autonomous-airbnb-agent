@@ -1,0 +1,15 @@
+.git
+.next
+.vercel
+node_modules
+_archive_not_used_for_short_rentals
+.agents
+.env*
+*.log
+
+# Course/planning artifacts are kept in the repo for context, but are not needed at runtime.
+הרצאות - חשוב
+*.pdf
+*.pptx
+*.docx
+short_terms_rentals_presentation_script.txt

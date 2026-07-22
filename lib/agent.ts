@@ -50,6 +50,7 @@ type AgentState = {
   currentDescriptionOverride?: string;
   intent: string[];
   selectedActions: string[];
+  observations: string[];
   listing?: Listing;
   page?: SimulatedListingPage;
   claims?: Record<string, unknown>;
@@ -85,7 +86,7 @@ const topicKeywords: Record<string, string[]> = {
   restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"]
 };
 
-const MAX_ACTIONS = 12;
+const MAX_ACTIONS = 16;
 const MAX_PORTFOLIO_LISTINGS = 8;
 
 export async function executeListingAgent(prompt: string): Promise<ExecuteResponse> {
@@ -151,6 +152,7 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
       currentDescriptionOverride: options.currentPageDescription,
       intent: inferIntent(prompt),
       selectedActions: [],
+      observations: [],
       reviseCount: 0,
       requireMoreEvidence: false
     };
@@ -235,6 +237,7 @@ async function executePortfolioAgent(
       currentDescriptionOverride: portfolioPageDescriptions[listing.id],
       intent: inferIntent(listingPrompt),
       selectedActions: [],
+      observations: [],
       reviseCount: 0,
       requireMoreEvidence: false
     };
@@ -307,7 +310,13 @@ async function decideNextAction(state: AgentState): Promise<AgentNextAction> {
     mockResponse
   });
 
-  return enforceActionPreconditions(state, AgentNextActionSchema.parse(response));
+  const parsed = AgentNextActionSchema.safeParse(response);
+  if (!parsed.success) {
+    state.observations.push("LLM action output failed runtime validation; deterministic policy selected the next action.");
+    return enforceActionPreconditions(state, mockResponse);
+  }
+
+  return enforceActionPreconditions(state, parsed.data);
 }
 
 function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction): AgentNextAction {
@@ -674,19 +683,32 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
 
       const guardrails = validateProposal(state.proposal, state);
       const signals = state.signals ?? [];
+      const fallbackSupervisor = supervise(state.proposal, signals, guardrails.passed);
       const supervisorDraft = await callLlmJson<SupervisorOutput>({
         module: "Supervisor / Control Agent",
         messages: [
           { role: "system", content: SUPERVISOR_SYSTEM_PROMPT },
           { role: "user", content: JSON.stringify({ proposal: state.proposal, signals, guardrails }) }
         ],
-        mockResponse: supervise(state.proposal, signals, guardrails.passed)
+        mockResponse: fallbackSupervisor
       });
-      state.supervisor = SupervisorOutputSchema.parse(enforceGuardrails(state.proposal, supervisorDraft, state));
+      const normalizedSupervisor = normalizeSupervisorOutput(supervisorDraft);
+      const parsedSupervisor = SupervisorOutputSchema.safeParse(normalizedSupervisor);
+      const llmOutputValid = parsedSupervisor.success;
+      const safeSupervisor = parsedSupervisor.success
+        ? parsedSupervisor.data
+        : {
+            ...fallbackSupervisor,
+            rationale: `${fallbackSupervisor.rationale} LLM Supervisor output failed runtime validation, so deterministic Supervisor policy was used.`
+          };
+      state.supervisor = SupervisorOutputSchema.parse(enforceGuardrails(state.proposal, safeSupervisor, state));
 
       steps.push(step("Supervisor / Control Agent", SUPERVISOR_SYSTEM_PROMPT, JSON.stringify({ proposal: state.proposal, signals, guardrails }), {
         ...state.supervisor,
-        guardrails
+        guardrails: {
+          ...guardrails,
+          llm_output_valid: llmOutputValid
+        }
       }));
       return true;
     }
@@ -1360,6 +1382,29 @@ function signalToRecommendation(signal: Signal): ManagerRecommendation | null {
   return null;
 }
 
+function normalizeSupervisorOutput(value: unknown): unknown {
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const draft = value as Record<string, unknown>;
+  const decisionValue = String(draft.decision ?? "").trim().toLowerCase();
+  const decision =
+    decisionValue === "approve" || decisionValue === "approved"
+      ? "Approve"
+      : decisionValue === "revise" || decisionValue === "revision_requested"
+        ? "Revise"
+        : decisionValue === "block" || decisionValue === "blocked"
+          ? "Block"
+          : draft.decision;
+
+  return {
+    ...draft,
+    decision,
+    rationale: typeof draft.rationale === "string" ? draft.rationale : draft.reason
+  };
+}
+
 function supervise(proposal: EditProposal, signals: Signal[], guardrailsPassed: boolean): SupervisorOutput {
   if (!guardrailsPassed) {
     return {
@@ -1578,6 +1623,7 @@ function summarizeState(state: AgentState): string {
     has_proposal: Boolean(state.proposal),
     supervisor_decision: state.supervisor?.decision,
     revise_count: state.reviseCount,
+    runtime_observations: state.observations,
     terminal_reason: state.stopReason
   });
 }
