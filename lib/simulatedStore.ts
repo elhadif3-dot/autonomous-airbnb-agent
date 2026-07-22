@@ -104,7 +104,7 @@ export function applySimulatedPageUpdate(
       before: null,
       after: null,
       addedText: null,
-      reason: "The proposal was not approved for execution."
+      reason: proposal.reason ?? "The proposal was not approved for execution."
     };
   }
 
