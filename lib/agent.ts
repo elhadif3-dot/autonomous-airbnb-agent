@@ -1686,6 +1686,10 @@ function finalResponse(state: AgentState): string {
     return `The Supervisor requested revision for listing ${state.listing.id}. The agent replanned once and stopped because a safe approved edit was not available. No live Airbnb account was accessed.`;
   }
 
+  if (state.stopReason) {
+    return `${state.stopReason} No live Airbnb account was accessed, and no simulated page update was executed.`;
+  }
+
   return `No action was taken for listing ${state.listing.id}. The agent did not find enough validated evidence for a safe page update. No live Airbnb account was accessed.`;
 }
 
