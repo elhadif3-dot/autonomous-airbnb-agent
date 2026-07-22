@@ -89,7 +89,7 @@ type ReviewSearchStats = {
 };
 
 const topicKeywords: Record<string, string[]> = {
-  review_alignment: ["improve", "gap", "gaps", "align", "experience", "guest", "review", "reviews", "end to end"],
+  review_alignment: ["improve", "gap", "gaps", "align", "experience", "end to end"],
   location: ["location", "walk", "walking", "metro", "tram", "near", "close", "central"],
   hills: ["hill", "hills", "steep", "walk up", "climb"],
   stairs: ["stairs", "steps", "elevator", "lift"],
@@ -954,6 +954,17 @@ function inferIntent(prompt: string): string[] {
     );
   }
 
+  if (isNearbyOnlyPrompt(prompt)) {
+    return Array.from(
+      new Set([
+        "nearby_highlights",
+        "location",
+        ...topics.filter((topic) => !["review_alignment", "evidence_search", "restore_original"].includes(topic))
+      ])
+    );
+  }
+
+  const reviewOnly = isReviewOnlyPrompt(prompt);
   const broadReviewRequest =
     /\b(end to end|autonomously review|all managed|improve|gap|gaps|guest reviews|reviews and nearby|חוויית|ביקורות|פער|פערים|תשפר|תערוך)\b/i.test(prompt);
 
@@ -971,7 +982,7 @@ function inferIntent(prompt: string): string[] {
         "temperature",
         "view",
         "space",
-        "nearby_highlights",
+        ...(reviewOnly ? ["review_only"] : ["nearby_highlights"]),
         ...topics
       ])
     );
@@ -991,9 +1002,19 @@ function isEvidenceOnlyPrompt(prompt: string): boolean {
     /עוד\s+(עדויות|ראיות|דוגמאות)|תמצא\s+עוד|הוכחות/i.test(prompt);
 }
 
+function isReviewOnlyPrompt(prompt: string): boolean {
+  return /\b(review|reviews|guest reviews)\b.{0,45}\b(only|without google places|do not use google places|no nearby context)\b/i.test(prompt) ||
+    /\bfocus only on gaps between\b.{0,80}\bguest reviews\b/i.test(prompt);
+}
+
+function isNearbyOnlyPrompt(prompt: string): boolean {
+  return /\b(focus only on nearby|nearby guest value|nearby value|places around|surrounding places)\b/i.test(prompt) ||
+    /\bwithin\s+(?:about\s+)?\d+(?:\.\d+)?\s*(?:km|kilometers?)\b/i.test(prompt);
+}
+
 function reviewQueryForIntent(listing: Listing, intent: string[]): string {
   const topics = intent
-    .filter((topic) => !["review_alignment", "restore_original", "evidence_search"].includes(topic))
+    .filter((topic) => !["review_alignment", "restore_original", "evidence_search", "review_only"].includes(topic))
     .slice(0, 8)
     .join(", ");
 
@@ -1005,7 +1026,7 @@ function reviewQueryForIntent(listing: Listing, intent: string[]): string {
 }
 
 function needsGooglePlaces(state: AgentState): boolean {
-  if (needsManagerRecommendations(state)) {
+  if (needsManagerRecommendations(state) || state.intent.includes("review_only")) {
     return false;
   }
 
