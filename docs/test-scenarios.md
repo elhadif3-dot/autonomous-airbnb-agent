@@ -41,6 +41,25 @@ Expected behavior:
 - Restores only the simulated page description from the original dataset row.
 - Writes an audit log.
 
+## Manager Property Recommendations
+
+Prompt:
+
+```text
+Selected listing id: 176153
+For The White House, do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.
+```
+
+Expected behavior:
+
+- Uses `Input Scope Guard`.
+- Uses Listing Tools and Review RAG.
+- Chooses `draft_manager_recommendations`.
+- Does not use Google Places unless the recommendation specifically needs location context.
+- Does not submit a page edit to the Supervisor because no page update is requested.
+- Returns manager-facing recommendations with priority, guest signal, suggested action, business value, and evidence count.
+- Does not edit source reviews, CSV rows, pricing, bookings, private messages, or a live Airbnb account.
+
 ## Portfolio Sweep
 
 Prompt:

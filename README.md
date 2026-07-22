@@ -25,6 +25,7 @@ Actual page edits are executed only after `Supervisor / Control Agent` approval.
 Approved edits update the simulated listing page state and create an audit-log entry.
 Manager prompts can also ask the agent to restore the simulated page to the original dataset text; that restore path uses a different action trace and still requires Supervisor approval.
 Portfolio prompts can ask the agent to review all managed demo listings. The runtime selects the evidence-rich manager portfolio, runs each listing independently, prioritizes guest-review gaps before nearby highlights, updates only approved simulated pages, and returns a per-listing audit summary.
+Manager insight prompts can ask what fixable property or operations issues guests mention. That action returns recommendations only; it does not edit the listing page and does not require live Airbnb access.
 
 ## Required API
 

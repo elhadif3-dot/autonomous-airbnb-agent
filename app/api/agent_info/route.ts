@@ -1,7 +1,7 @@
 export function GET() {
   return Response.json({
     description:
-      "An autonomous demo agent for Lisbon short-term-rental managers. It compares a simulated Airbnb listing page with real guest reviews and nearby Google Places context, proposes narrow page edits, and executes them only after Supervisor approval.",
+      "An autonomous demo agent for Lisbon short-term-rental managers. It compares a simulated Airbnb listing page with real guest reviews and nearby Google Places context, proposes narrow page edits, executes them only after Supervisor approval, and can also recommend fixable property improvements from guest reviews.",
     purpose:
       "Keep Lisbon Airbnb listing pages aligned with real guest experience while avoiding invented claims, live scraping, out-of-scope requests, and unnecessary LLM calls.",
     prompt_template: {
@@ -83,6 +83,43 @@ export function GET() {
             response: {
               requested_listings: 8,
               selection_rule: "Highest Airbnb review count plus nearby Google Places coverage."
+            }
+          }
+        ]
+      },
+      {
+        prompt:
+          "Selected listing id: 176153\nFor The White House, do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.",
+        full_response:
+          "The agent did not edit the listing page. It used read-only guest reviews and returned manager-facing recommendations with priority, guest signal, suggested action, business value, and evidence count.",
+        steps: [
+          {
+            module: "Autonomous Listing Editor Agent",
+            prompt: {
+              system_prompt: "Choose one next action from the current state.",
+              user_prompt: "Manager asked for fixable property or operations issues, not a page edit."
+            },
+            response: {
+              next_action: "draft_manager_recommendations",
+              short_rationale: "The manager wants operational recommendations based on guest reviews.",
+              should_stop: false
+            }
+          },
+          {
+            module: "Manager Insight Tools",
+            prompt: {
+              system_prompt: "Draft property improvement recommendations from read-only guest reviews.",
+              user_prompt: "Review signals for selected listing."
+            },
+            response: {
+              recommendations: [
+                {
+                  topic: "Temperature comfort",
+                  priority: "high",
+                  evidenceCount: 2
+                }
+              ],
+              editable_scope: "No page update is executed by this tool."
             }
           }
         ]

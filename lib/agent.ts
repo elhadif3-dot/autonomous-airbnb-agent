@@ -26,6 +26,7 @@ import type {
   AuditLogEntry,
   ExecuteResponse,
   Listing,
+  ManagerRecommendation,
   Place,
   PortfolioListingResult,
   Review,
@@ -58,6 +59,7 @@ type AgentState = {
   relevantPlaces?: Place[];
   signals?: Signal[];
   proposal?: EditProposal;
+  managerRecommendations?: ManagerRecommendation[];
   supervisor?: SupervisorOutput;
   pageUpdate?: SimulatedPageUpdate | null;
   auditLog?: AuditLogEntry | null;
@@ -78,6 +80,7 @@ const topicKeywords: Record<string, string[]> = {
   temperature: ["hot", "warm", "cold", "air conditioning", "a/c", "ac", "heating"],
   view: ["view", "views", "river", "terrace", "balcony"],
   space: ["small", "tiny", "compact", "cramped"],
+  property_fixes: ["fix", "repair", "maintenance", "issue", "issues", "problem", "complaint", "bothering", "improve the property", "quality", "income", "revenue"],
   nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
   restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"]
 };
@@ -198,6 +201,7 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
     steps,
     page_update: state.pageUpdate ?? null,
     portfolio_update: null,
+    manager_recommendations: state.managerRecommendations ?? null,
     audit_log: state.auditLog ?? null
   };
 }
@@ -328,7 +332,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
   if (state.claims && !state.reviews && proposed.next_action !== "search_reviews") {
     return action(
       "search_reviews",
-      { listing_id: state.listingId, topics: state.intent, top_k: state.requireMoreEvidence ? 12 : 6, runtime_override_from: proposed.next_action },
+      { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state), runtime_override_from: proposed.next_action },
       "Airbnb guest reviews are the primary evidence source before drafting any page edit.",
       "Review evidence is missing."
     );
@@ -362,7 +366,21 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
-  if (state.signals && !state.proposal && proposed.next_action !== "draft_listing_edit") {
+  if (
+    state.signals &&
+    needsManagerRecommendations(state) &&
+    !state.managerRecommendations &&
+    proposed.next_action !== "draft_manager_recommendations"
+  ) {
+    return action(
+      "draft_manager_recommendations",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "The manager asked for property improvement recommendations, not a page edit.",
+      "Manager recommendations are missing."
+    );
+  }
+
+  if (state.signals && !needsManagerRecommendations(state) && !state.proposal && proposed.next_action !== "draft_listing_edit") {
     return action(
       "draft_listing_edit",
       { listing_id: state.listingId, runtime_override_from: proposed.next_action },
@@ -402,7 +420,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
 }
 
 function chooseNextAction(state: AgentState): AgentNextAction {
-  if (state.stopReason || state.auditLog) {
+  if (state.stopReason || state.auditLog || state.managerRecommendations) {
     return action("stop_without_action", {}, "The runtime already reached a terminal state.", "Stop execution.", true);
   }
 
@@ -431,7 +449,7 @@ function chooseNextAction(state: AgentState): AgentNextAction {
   }
 
   if (!state.reviews) {
-    return action("search_reviews", { listing_id: state.listingId, topics: state.intent, top_k: 6 }, "Guest reviews are the primary evidence source.", "Review evidence is missing.");
+    return action("search_reviews", { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state) }, "Guest reviews are the primary evidence source.", "Review evidence is missing.");
   }
 
   if (needsGooglePlaces(state) && !state.places) {
@@ -440,6 +458,10 @@ function chooseNextAction(state: AgentState): AgentNextAction {
 
   if (!state.signals) {
     return action("detect_guest_signals", { listing_id: state.listingId }, "The agent has observations and must decide whether an editable gap exists.", "Guest signals are missing.");
+  }
+
+  if (needsManagerRecommendations(state) && !state.managerRecommendations) {
+    return action("draft_manager_recommendations", { listing_id: state.listingId }, "The manager asked what property issues to fix, so the agent should turn review signals into operational recommendations.", "No manager recommendations exist.");
   }
 
   if (!state.proposal) {
@@ -599,6 +621,21 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       return true;
     }
 
+    case "draft_manager_recommendations": {
+      if (!state.listing || !state.reviews || !state.signals) {
+        throw new Error("Cannot draft manager recommendations before listing reviews and guest signals are available.");
+      }
+
+      state.managerRecommendations = draftManagerRecommendations(state.listing, state.reviews, state.signals);
+      steps.push(step("Manager Insight Tools", "Draft property improvement recommendations from read-only guest reviews.", JSON.stringify(actionRequest.tool_input), {
+        listing_id: state.listing.id,
+        recommendations: state.managerRecommendations,
+        editable_scope: "No page update is executed by this tool.",
+        token_safety: "The tool uses already retrieved review observations and does not call live Airbnb, pricing, booking, or private-message systems."
+      }));
+      return false;
+    }
+
     case "restore_original_page": {
       if (!state.listing) {
         throw new Error("Cannot restore the page before listing data is loaded.");
@@ -714,12 +751,12 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
 }
 
 function extractListingId(prompt: string): string | null {
-  const explicit = prompt.match(/selected listing id:\s*(\d{8,})/i);
+  const explicit = prompt.match(/selected listing id:\s*(\d{5,})/i);
   if (explicit?.[1]) {
     return explicit[1];
   }
 
-  const fallback = prompt.match(/\b\d{8,}\b/);
+  const fallback = prompt.match(/\b\d{5,}\b/);
   return fallback?.[0] ?? null;
 }
 
@@ -772,12 +809,20 @@ function reviewRetrievalLimit(state: AgentState): number {
 }
 
 function needsGooglePlaces(state: AgentState): boolean {
+  if (needsManagerRecommendations(state)) {
+    return false;
+  }
+
   return (
     state.intent.includes("location") ||
     state.intent.includes("noise") ||
     state.intent.includes("nearby_highlights") ||
     state.intent.includes("hills")
   );
+}
+
+function needsManagerRecommendations(state: AgentState): boolean {
+  return state.intent.includes("property_fixes");
 }
 
 function extractClaims(listing: Listing, currentDescription: string): Record<string, unknown> {
@@ -1130,6 +1175,169 @@ function signalPriority(signal: Signal): number {
   return 2;
 }
 
+function draftManagerRecommendations(
+  listing: Listing,
+  reviews: Review[],
+  signals: Signal[]
+): ManagerRecommendation[] {
+  const candidates = [
+    recommendationCandidate(
+      "Temperature comfort",
+      "high",
+      reviews,
+      /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c|\bac\b/i,
+      "Guests mention temperature comfort.",
+      "Check cooling/heating, ventilation, and simple comfort items such as an extra fan or clearer seasonal instructions.",
+      "Reducing temperature discomfort can improve sleep quality, review scores, and guest satisfaction."
+    ),
+    recommendationCandidate(
+      "Access and stairs",
+      "medium",
+      reviews,
+      /stairs|steps|elevator|lift|climb/i,
+      "Guests mention stairs or stepped access.",
+      "Improve pre-arrival access instructions, highlight luggage expectations, and consider practical support such as clearer check-in guidance.",
+      "Clearer access handling reduces surprise on arrival and helps guests self-select before booking."
+    ),
+    recommendationCandidate(
+      "Noise management",
+      "medium",
+      reviews,
+      /\b(noisy|loud|nightlife|bar|bars)\b|busy street|weekend nights/i,
+      "Guests mention noise or active street conditions.",
+      "Consider better window sealing, earplugs, quiet-hours guidance, or clearer expectation-setting in the page description.",
+      "Better noise management lowers expectation mismatch and can prevent avoidable negative reviews."
+    ),
+    recommendationCandidate(
+      "Wi-Fi reliability",
+      "high",
+      reviews,
+      /wifi|wi-fi|internet|connection|remote work/i,
+      "Guests mention Wi-Fi, internet, or remote-work needs.",
+      "Test connection reliability, document router instructions, and make the workspace setup clear if the amenity is offered.",
+      "Reliable connectivity is a high-value factor for business travelers and longer stays."
+    ),
+    recommendationCandidate(
+      "Cleaning consistency",
+      "high",
+      reviews,
+      /dirty|dust|smell|odor|unclean|not clean/i,
+      "Guests mention cleanliness issues.",
+      "Review cleaning checklist, inspect high-touch areas, and track recurring cleaning complaints before each turnover.",
+      "Cleaning consistency directly affects review scores, trust, and conversion."
+    ),
+    recommendationCandidate(
+      "Sleep comfort",
+      "medium",
+      reviews,
+      /uncomfortable|hard bed|soft bed|mattress|pillow|sleep/i,
+      "Guests mention bed or sleep comfort.",
+      "Inspect mattress, pillows, linens, and light/noise conditions that affect sleep.",
+      "Better sleep experience improves perceived value and repeat-booking potential."
+    ),
+    recommendationCandidate(
+      "Space expectations",
+      "low",
+      reviews,
+      /small|tiny|compact|cramped/i,
+      "Guests describe the space as compact.",
+      "Improve storage, declutter visible areas, and keep page wording clear about efficient space usage.",
+      "Matching expectations reduces disappointment while preserving the property's location value."
+    )
+  ].filter((item): item is ManagerRecommendation => Boolean(item));
+
+  const signalBacked = signals
+    .filter((signal) => signal.type === "accuracy_gap" && signal.primaryEvidenceCount >= 2)
+    .map((signal) => signalToRecommendation(signal))
+    .filter((item): item is ManagerRecommendation => Boolean(item));
+
+  const merged = [...signalBacked, ...candidates].filter(
+    (item, index, items) => items.findIndex((candidate) => candidate.topic === item.topic) === index
+  );
+
+  if (merged.length > 0) {
+    return merged.slice(0, 4);
+  }
+
+  return [
+    {
+      topic: "No repeated fixable issue found",
+      priority: "low",
+      guestSignal: "The prepared review sample does not show a repeated operational complaint for this listing.",
+      suggestedAction: "Keep monitoring new guest feedback and use the page-edit tool if a review-backed expectation gap appears.",
+      businessValue: "Avoiding unsupported changes protects listing accuracy and prevents token waste.",
+      evidenceCount: reviews.length,
+      evidence: reviews.slice(0, 2).map((review) => excerpt(review.comments))
+    }
+  ];
+}
+
+function recommendationCandidate(
+  topic: string,
+  priority: ManagerRecommendation["priority"],
+  reviews: Review[],
+  pattern: RegExp,
+  guestSignal: string,
+  suggestedAction: string,
+  businessValue: string
+): ManagerRecommendation | null {
+  const evidence = reviews.filter((review) => pattern.test(review.comments)).map((review) => excerpt(review.comments));
+
+  if (evidence.length < 2) {
+    return null;
+  }
+
+  return {
+    topic,
+    priority,
+    guestSignal,
+    suggestedAction,
+    businessValue,
+    evidenceCount: evidence.length,
+    evidence: evidence.slice(0, 3)
+  };
+}
+
+function signalToRecommendation(signal: Signal): ManagerRecommendation | null {
+  if (signal.topic === "Historic Lisbon hills") {
+    return {
+      topic: "Hills and walking effort",
+      priority: "medium",
+      guestSignal: "Guests repeatedly mention steep nearby walks.",
+      suggestedAction: "Make access guidance clearer before arrival and suggest the easiest route or nearby transport option.",
+      businessValue: "Better expectation-setting reduces arrival friction while keeping the historic-location value clear.",
+      evidenceCount: signal.primaryEvidenceCount,
+      evidence: signal.evidence.slice(0, 3)
+    };
+  }
+
+  if (signal.topic === "Access and stairs expectations") {
+    return {
+      topic: "Access and stairs",
+      priority: "medium",
+      guestSignal: "Guests repeatedly mention stairs or stepped access.",
+      suggestedAction: "Improve pre-arrival access instructions and clarify luggage expectations.",
+      businessValue: "Clear access expectations reduce avoidable disappointment and support better reviews.",
+      evidenceCount: signal.primaryEvidenceCount,
+      evidence: signal.evidence.slice(0, 3)
+    };
+  }
+
+  if (signal.topic === "Temperature expectations") {
+    return {
+      topic: "Temperature comfort",
+      priority: "high",
+      guestSignal: "Guests repeatedly mention room temperature.",
+      suggestedAction: "Check cooling/heating, ventilation, and seasonal comfort guidance.",
+      businessValue: "Comfort improvements can directly improve review quality and perceived value.",
+      evidenceCount: signal.primaryEvidenceCount,
+      evidence: signal.evidence.slice(0, 3)
+    };
+  }
+
+  return null;
+}
+
 function supervise(proposal: EditProposal, signals: Signal[], guardrailsPassed: boolean): SupervisorOutput {
   if (!guardrailsPassed) {
     return {
@@ -1196,6 +1404,10 @@ function finalResponse(state: AgentState): string {
     return state.stopReason ?? "No listing was selected.";
   }
 
+  if (state.managerRecommendations) {
+    return managerRecommendationResponse(state.listing, state.managerRecommendations);
+  }
+
   if (state.supervisor?.decision === "Approve" && state.pageUpdate?.status === "executed") {
     if (state.proposal?.action === "restore_original_page") {
       return [
@@ -1210,8 +1422,12 @@ function finalResponse(state: AgentState): string {
     return [
       `Approved and executed in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
       "",
-      `Updated field: ${state.pageUpdate.field}.`,
-      `Added text: ${state.pageUpdate.addedText}`,
+      `What changed: the agent updated the ${state.pageUpdate.field} with this evidence-backed text:`,
+      state.pageUpdate.addedText,
+      "",
+      `Why this improves the page: ${pageEditBenefit(state)}`,
+      "",
+      `Evidence used: ${pageEditEvidenceSummary(state)}`,
       "",
       "No live Airbnb account was accessed. The update was applied only to the simulated listing page and recorded in the audit log."
     ].join("\n");
@@ -1222,6 +1438,55 @@ function finalResponse(state: AgentState): string {
   }
 
   return `No action was taken for listing ${state.listing.id}. The agent did not find enough validated evidence for a safe page update. No live Airbnb account was accessed.`;
+}
+
+function pageEditBenefit(state: AgentState): string {
+  const topics = state.proposal?.evidence_topics ?? [];
+
+  if (topics.some((topic) => /stairs|hills|temperature|noise|space/i.test(topic))) {
+    return "it sets clearer guest expectations before booking, which reduces surprise during the stay and can prevent avoidable negative reviews.";
+  }
+
+  if (topics.some((topic) => /view|cleanliness|comfort|location|nearby/i.test(topic))) {
+    return "it makes the listing more persuasive by surfacing strengths that guests repeatedly mention, without inventing unsupported claims.";
+  }
+
+  return "it aligns the page with repeated guest experience signals while keeping the source reviews and data read-only.";
+}
+
+function pageEditEvidenceSummary(state: AgentState): string {
+  const topics = state.proposal?.evidence_topics ?? [];
+  const strongestSignals = (state.signals ?? [])
+    .filter((signal) => topics.includes(signal.topic))
+    .map((signal) => `${signal.topic} (${signal.primaryEvidenceCount} guest-review signals)`);
+
+  if (strongestSignals.length > 0) {
+    return strongestSignals.join("; ");
+  }
+
+  return "Airbnb guest reviews were the primary evidence source; Google Places was used only as supporting context when relevant.";
+}
+
+function managerRecommendationResponse(listing: Listing, recommendations: ManagerRecommendation[]): string {
+  const lines = [
+    `Manager recommendations for listing ${listing.id}: ${listing.name}.`,
+    "",
+    "The agent did not edit the listing page. It used read-only guest reviews to identify fixable property or operations issues.",
+    ""
+  ];
+
+  for (const recommendation of recommendations) {
+    lines.push(
+      `${recommendation.priority.toUpperCase()} | ${recommendation.topic}`,
+      `Guest signal: ${recommendation.guestSignal} (${recommendation.evidenceCount} review signals).`,
+      `Recommended action: ${recommendation.suggestedAction}`,
+      `Why it helps: ${recommendation.businessValue}`,
+      ""
+    );
+  }
+
+  lines.push("No live Airbnb account, pricing, bookings, private messages, guest reviews, or source CSV rows were changed.");
+  return lines.join("\n");
 }
 
 function isRestoreRequest(state: AgentState): boolean {

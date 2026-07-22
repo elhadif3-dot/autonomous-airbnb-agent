@@ -54,6 +54,7 @@ export type ExecuteResponse = {
   steps: AgentStep[];
   page_update?: SimulatedPageUpdate | null;
   portfolio_update?: PortfolioUpdate | null;
+  manager_recommendations?: ManagerRecommendation[] | null;
   audit_log?: AuditLogEntry | null;
 };
 
@@ -78,6 +79,16 @@ export type PortfolioUpdate = {
 };
 
 export type SupervisorDecision = "Approve" | "Revise" | "Block";
+
+export type ManagerRecommendation = {
+  topic: string;
+  priority: "high" | "medium" | "low";
+  guestSignal: string;
+  suggestedAction: string;
+  businessValue: string;
+  evidenceCount: number;
+  evidence: string[];
+};
 
 export type SimulatedListingPage = {
   listingId: string;

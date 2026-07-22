@@ -82,6 +82,11 @@ function promptExamples(listingName: string, managedCount: number) {
       prompt: `For "${listingName}", find positive nearby value missing from the page. Use Airbnb location reviews as primary evidence and Google Places only as supporting context. If approved, add concise guest-facing text to the simulated page.`
     },
     {
+      label: "Find property fixes",
+      hint: "Recommend fixes from guest complaints",
+      prompt: `For "${listingName}", do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.`
+    },
+    {
       label: "Undo last page edit",
       hint: "Restore original dataset text",
       prompt: `I did not like the simulated edit on "${listingName}". Restore this listing page to the original dataset text and record what you restored.`
@@ -584,6 +589,35 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
         </div>
       ) : null}
 
+      {result.manager_recommendations?.length ? (
+        <div className="auditBox">
+          <h4>Property improvement recommendations</h4>
+          <p>
+            The agent did not edit the page here. It used read-only guest reviews to identify fixable issues that may
+            improve guest experience, review quality, and booking confidence.
+          </p>
+          <div className="recommendationList">
+            {result.manager_recommendations.map((item) => (
+              <article className="recommendationItem" key={`${item.topic}-${item.priority}`}>
+                <div>
+                  <strong>{item.topic}</strong>
+                  <span className={`priorityBadge ${item.priority}`}>{item.priority}</span>
+                </div>
+                <p>
+                  <b>Guest signal:</b> {item.guestSignal} ({item.evidenceCount} review signals)
+                </p>
+                <p>
+                  <b>Recommended action:</b> {item.suggestedAction}
+                </p>
+                <p>
+                  <b>Why it helps:</b> {item.businessValue}
+                </p>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {result.portfolio_update ? (
         <div className="auditBox">
           <h4>Portfolio result</h4>
@@ -600,6 +634,7 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
                 </div>
                 <span className={`portfolioStatus ${item.status}`}>{item.status}</span>
                 {item.addedText ? <p>{item.addedText}</p> : <p>{item.response}</p>}
+                {item.response ? <p className="whyLine">{extractWhyLine(item.response)}</p> : null}
               </article>
             ))}
           </div>
@@ -721,6 +756,23 @@ function getEvidenceTopics(proposal: unknown): string[] {
   return value.evidence_topics.filter((topic): topic is string => typeof topic === "string");
 }
 
+function extractWhyLine(response: string): string {
+  const match = response.match(/Why this improves the page:\s*([^\n]+)/i);
+  if (match?.[1]) {
+    return `Why this helps: ${match[1]}`;
+  }
+
+  if (/No action was taken/i.test(response)) {
+    return "Why this helps: the agent avoided an unsupported edit instead of changing the page without strong evidence.";
+  }
+
+  if (/restored/i.test(response)) {
+    return "Why this helps: the simulated page returned to the original dataset text after the manager rejected the edit.";
+  }
+
+  return "Why this helps: the agent kept the action within the allowed demo scope and explained the result.";
+}
+
 function summarizeTraceStep(step: AgentStep): TraceSummary {
   const response = isRecord(step.response) ? step.response : {};
 
@@ -758,6 +810,15 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
       observation: isRecord(response.audit_log)
         ? `Audit log recorded for ${stringValue(response.audit_log.listingName) ?? "the selected listing"}.`
         : "The simulated page state was handled according to the Supervisor decision."
+    };
+  }
+
+  if (Array.isArray(response.recommendations)) {
+    return {
+      title: "Drafted manager recommendations",
+      status: `${response.recommendations.length} recommendations`,
+      rationale: "The request asked for fixable property or operations issues, so the agent produced manager-facing advice instead of editing the page.",
+      observation: stringValue(response.editable_scope)
     };
   }
 

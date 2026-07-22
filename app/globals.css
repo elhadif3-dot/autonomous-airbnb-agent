@@ -861,6 +861,65 @@ button {
   line-height: 1.4;
 }
 
+.portfolioItem .whyLine {
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.recommendationList {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.recommendationItem {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.recommendationItem > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.recommendationItem p {
+  margin: 0;
+  color: #333;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.priorityBadge {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.priorityBadge.high {
+  background: #ffe8ec;
+  color: var(--red);
+}
+
+.priorityBadge.medium {
+  background: #fff3cf;
+  color: #765400;
+}
+
+.priorityBadge.low {
+  background: #eef8f3;
+  color: var(--green);
+}
+
 .portfolioStatus {
   align-self: start;
   width: fit-content;
