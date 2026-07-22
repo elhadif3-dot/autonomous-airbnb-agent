@@ -101,7 +101,6 @@ const topicKeywords: Record<string, string[]> = {
   view: ["view", "views", "river", "terrace", "balcony"],
   space: ["small", "tiny", "compact", "cramped"],
   property_fixes: ["fix", "repair", "maintenance", "issue", "issues", "problem", "complaint", "bothering", "improve the property", "quality", "income", "revenue"],
-  evidence_search: ["evidence", "evidance", "avidance", "proof", "examples", "more signals", "more reviews", "find more", "show me"],
   nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
   restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"]
 };
@@ -987,6 +986,7 @@ function inferIntent(prompt: string): string[] {
 
 function isEvidenceOnlyPrompt(prompt: string): boolean {
   return /\b(find|show|get|retrieve|bring|look for|can you find)\b.{0,45}\b(more\s+)?(evidence|evidance|avidance|proof|examples?|review signals?|guest signals?)\b/i.test(prompt) ||
+    /\b(return|give|list|show)\b.{0,40}\b(review\s+)?examples?\b.{0,60}\b(do not edit|without editing|no page edit|only)\b/i.test(prompt) ||
     /\b(more\s+)?(evidence|evidance|avidance|proof|examples?)\s+(for|about|of|to)\b/i.test(prompt) ||
     /עוד\s+(עדויות|ראיות|דוגמאות)|תמצא\s+עוד|הוכחות/i.test(prompt);
 }
@@ -1171,9 +1171,9 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
         focus(`${topic} complaints`, `Find negative or mixed guest comments about ${topicKeywords}.`),
         focus(`${topic} practical impact`, `Find reviews that mention how ${topicKeywords} affected work, comfort, check-in, or stay quality.`)
       ],
-      topKPerQuery: 48,
-      targetUniqueReviews: 96,
-      maxUniqueReviews: 120,
+      topKPerQuery: 50,
+      targetUniqueReviews: 100,
+      maxUniqueReviews: 140,
       timeBudgetMs
     };
   }
@@ -1186,9 +1186,9 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
         focus("guest friction", "Find concrete guest friction, maintenance issues, missing basics, or avoidable operational problems."),
         focus("review quality opportunities", "Find issues that could affect ratings, booking confidence, or guest satisfaction.")
       ],
-      topKPerQuery: 40,
-      targetUniqueReviews: 90,
-      maxUniqueReviews: 120,
+      topKPerQuery: 50,
+      targetUniqueReviews: 110,
+      maxUniqueReviews: 140,
       timeBudgetMs
     };
   }
@@ -1200,9 +1200,9 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
         focus("nearby value", "Find reviews about walkable location, nearby restaurants, cafes, parks, attractions, transit, and useful local options."),
         focus("location selling points", "Find guest comments that explain why the surrounding Lisbon area improves the stay.")
       ],
-      topKPerQuery: 40,
-      targetUniqueReviews: 72,
-      maxUniqueReviews: 96,
+      topKPerQuery: 50,
+      targetUniqueReviews: 90,
+      maxUniqueReviews: 120,
       timeBudgetMs
     };
   }
@@ -1216,9 +1216,9 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
         focus("guest-confirmed strengths", "Find repeated positive strengths that should improve listing copy: location, walkability, cleanliness, view, comfort, and convenience."),
         focus("nearby and location support", "Find review support for nearby restaurants, attractions, cafes, transit, parks, and walkable Lisbon context.")
       ],
-      topKPerQuery: 40,
-      targetUniqueReviews: 120,
-      maxUniqueReviews: 140,
+      topKPerQuery: 60,
+      targetUniqueReviews: 150,
+      maxUniqueReviews: 180,
       timeBudgetMs
     };
   }
@@ -1556,7 +1556,14 @@ function detectSignals(
     });
   }
 
-  return signals;
+  return signals.map(limitSignalEvidence);
+}
+
+function limitSignalEvidence(signal: Signal): Signal {
+  return {
+    ...signal,
+    evidence: signal.evidence.slice(0, 8)
+  };
 }
 
 function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
