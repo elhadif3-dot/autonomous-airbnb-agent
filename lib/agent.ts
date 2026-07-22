@@ -1130,6 +1130,27 @@ function detectSignals(
     }
   }
 
+  if ((intent.includes("nearby_highlights") || hasBroadIntent) && !description.includes("nearby dining")) {
+    const diningPlaces = places
+      .filter((place) => /Dining|restaurant|food|cafe|seafood|pizza|bar/i.test(`${place.category} ${place.placeName}`))
+      .filter((place) => (place.rating ?? 0) >= 4.5 && place.numberOfReviews >= 30)
+      .slice(0, 3);
+    const diningReviewSupport = reviews.filter((review) => /restaurant|restaurants|cafe|cafes|eating|food|bar|bars/i.test(review.comments));
+    if (diningPlaces.length >= 1 && diningReviewSupport.length >= 2) {
+      signals.push({
+        type: "positive_highlight",
+        topic: "Rated nearby dining options",
+        evidenceCount: diningPlaces.length + diningReviewSupport.length,
+        primaryEvidenceCount: diningReviewSupport.length,
+        evidence: [
+          ...diningReviewSupport.slice(0, 2).map((review) => excerpt(review.comments)),
+          ...diningPlaces.map((place) => `${place.placeName} (${place.rating?.toFixed(1) ?? "rated"}, ${place.numberOfReviews} Google reviews)`)
+        ],
+        recommendation: "Add nearby dining options only when Airbnb reviews support the area value and Google Places provides rating context."
+      });
+    }
+  }
+
   if (signals.length === 0) {
     signals.push({
       type: "insufficient_evidence",
@@ -1165,7 +1186,7 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
     return stopProposal(listing.id, "No strong, editable gap was found.");
   }
 
-  const selectedSignals = editableSignals.slice(0, 2);
+  const selectedSignals = editableSignals.slice(0, 3);
   const additions = selectedSignals.map((signal) => {
     if (signal.topic === "Historic Lisbon hills") {
       return "A great fit for guests who want to explore historic Lisbon on foot; some nearby streets are steep, so comfortable walking shoes are recommended.";
@@ -1201,6 +1222,10 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
       const placeNames = signal.evidence.filter((item) => !item.includes("...")).slice(-3);
       return `Guests who like having useful options close by can use the surrounding area as a convenient base, with nearby local options such as ${placeNames.join(", ")}.`;
     }
+    if (signal.topic === "Rated nearby dining options") {
+      const placeNames = signal.evidence.filter((item) => /\([^)]+Google reviews\)/i.test(item));
+      return `Guests mention the convenience of nearby places to eat, and Google Places context supports that with highly rated nearby dining options such as ${placeNames.join(", ")}.`;
+    }
     return signal.recommendation;
   });
 
@@ -1226,6 +1251,10 @@ function signalPriority(signal: Signal): number {
     return 3;
   }
 
+  if (signal.topic === "Rated nearby dining options") {
+    return 2;
+  }
+
   return 2;
 }
 
@@ -1249,9 +1278,10 @@ function draftManagerRecommendations(
       "medium",
       reviews,
       /stairs|steps|elevator|lift|climb/i,
-      "Guests mention stairs or stepped access.",
+      "Guests mention stairs, stepped access, elevator availability, or luggage handling.",
       "Improve pre-arrival access instructions, highlight luggage expectations, and consider practical support such as clearer check-in guidance.",
-      "Clearer access handling reduces surprise on arrival and helps guests self-select before booking."
+      "Clearer access handling reduces surprise on arrival and helps guests self-select before booking.",
+      1
     ),
     recommendationCandidate(
       "Noise management",
@@ -1296,7 +1326,28 @@ function draftManagerRecommendations(
       /small|tiny|compact|cramped/i,
       "Guests describe the space as compact.",
       "Improve storage, declutter visible areas, and keep page wording clear about efficient space usage.",
-      "Matching expectations reduces disappointment while preserving the property's location value."
+      "Matching expectations reduces disappointment while preserving the property's location value.",
+      1
+    ),
+    recommendationCandidate(
+      "Coffee and hot-drink basics",
+      "medium",
+      reviews,
+      /coffee machine|hot water|make coffee|coffee|cafe next door/i,
+      "Guests mention coffee or hot-drink access as a small but fixable convenience gap.",
+      "Consider adding a kettle, coffee machine, or clearer note about nearby cafe options if in-room coffee is not provided.",
+      "Small comfort upgrades can improve perceived hospitality and reduce minor friction in otherwise positive stays.",
+      1
+    ),
+    recommendationCandidate(
+      "Early check-in reliability",
+      "low",
+      reviews,
+      /early check.?in|check in.*dependable|not quite dependable|drop off luggage|luggage storage/i,
+      "Guests mention early check-in or luggage handling expectations.",
+      "Clarify when early check-in is confirmed versus optional, and keep luggage-storage instructions visible before arrival.",
+      "Clearer arrival expectations reduce friction at the start of the stay and protect the host's service score.",
+      1
     )
   ].filter((item): item is ManagerRecommendation => Boolean(item));
 
@@ -1333,18 +1384,19 @@ function recommendationCandidate(
   pattern: RegExp,
   guestSignal: string,
   suggestedAction: string,
-  businessValue: string
+  businessValue: string,
+  minEvidence = 2
 ): ManagerRecommendation | null {
   const evidence = reviews.filter((review) => pattern.test(review.comments)).map((review) => excerpt(review.comments));
 
-  if (evidence.length < 2) {
+  if (evidence.length < minEvidence) {
     return null;
   }
 
   return {
     topic,
     priority,
-    guestSignal,
+    guestSignal: evidence.length >= 2 ? guestSignal : `${guestSignal} This appears in the prepared review sample and should be treated as a practical watchlist item rather than a repeated complaint.`,
     suggestedAction,
     businessValue,
     evidenceCount: evidence.length,

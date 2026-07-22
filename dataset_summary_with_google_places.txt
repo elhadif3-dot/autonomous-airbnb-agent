@@ -1,21 +1,39 @@
-Lisbon short-term rentals dataset with Google Maps places
+Rich Lisbon Airbnb data source
 
-Input Google Maps places file: lisbon_googlemaps_locations.csv
-Original listings row count: 7,523
-Final listings row count: 5,596
-Original reviews row count: 97,760
-Final reviews row count: 72,744
-Original Google Maps places row count: 5,129
-Final Google Maps places row count: 4,211
-Radius used: 2 km
-Total final size in MB: 49.48
-Listings CSV size in MB: 7.27
-Reviews CSV size in MB: 24.69
-Google Maps places CSV size in MB: 17.52
-Number of removed listings: 1,927
-Number of removed reviews: 25,016
+Selected listings: 50
+Selection rule: top listings by full textual review count, with at least 2 Google Places within 2 km.
+Minimum full reviews required: 100
+Max reviews included per listing: 100000
 
-The files are kept separate intentionally.
-Airbnb reviews are the main RAG source.
-Airbnb listings are the structured property source.
-Google Maps places/reviews are an external environmental context source.
+Full reviews available per selected listing: min=676, max=1909, avg=821.5
+Reviews included per selected listing: min=676, max=1909, avg=821.5
+Total review rows included: 41077
+Google Places rows included: 3792
+Nearby places per selected listing: min=961, max=2961, avg=2164.8
+
+Output listings file: lisbon_listings_final_with_pois.csv (0.1 MB)
+Output reviews file: lisbon_reviews_final_with_pois.csv (12.1 MB)
+Output places file: lisbon_google_places_filtered.csv (15.5 MB)
+Total output CSV size: 27.7 MB
+
+Top selected listings:
+1. 45855270 | Rossio Garden Hotel | full_reviews=1909 | included_reviews=1909 | nearby_places=2576
+2. 4132059 | Lisbon Apt. Sunshine 1 | full_reviews=1321 | included_reviews=1321 | nearby_places=2680
+3. 1085634 | Cozy  Flat at Bica/ Bairro Alto | full_reviews=1166 | included_reviews=1166 | nearby_places=2371
+4. 19171082 | Bairro Alto Suites | full_reviews=1103 | included_reviews=1103 | nearby_places=2683
+5. 19240515 | Center cozy flat in Lisbon; Best location and view | full_reviews=1042 | included_reviews=1042 | nearby_places=2195
+6. 176153 | The White House - Historical Center | full_reviews=939 | included_reviews=939 | nearby_places=2209
+7. 447832 | Your home in Bairro Alto | full_reviews=926 | included_reviews=926 | nearby_places=2487
+8. 493274 | The Flat with The View | full_reviews=898 | included_reviews=898 | nearby_places=2306
+9. 1916892 | Alfama Blue House I (River View) | full_reviews=865 | included_reviews=865 | nearby_places=1746
+10. 6429072 | Lisbon rooftop with terrace and stunning views | full_reviews=848 | included_reviews=848 | nearby_places=2424
+11. 416929 | A room at the República das bananas | full_reviews=837 | included_reviews=837 | nearby_places=1438
+12. 789789 | Chiado Loft 3 Fantastic New Place | full_reviews=835 | included_reviews=835 | nearby_places=2500
+13. 13231767 | Bed in a 6-bed dorm @ This Is Lisbon Hostel | full_reviews=834 | included_reviews=834 | nearby_places=2199
+14. 9092386 | Alfama - Amazing River View | full_reviews=832 | included_reviews=832 | nearby_places=1832
+15. 8204668 | Alfama - Beco dos Ramos            (R.Remédios) | full_reviews=804 | included_reviews=804 | nearby_places=1637
+16. 1114716 | Alfama 2 You | full_reviews=802 | included_reviews=802 | nearby_places=1951
+17. 3013088 | Studio with River View in Lisbon | full_reviews=798 | included_reviews=798 | nearby_places=2238
+18. 790907 | Chiado Loft 2 Fantastic Last Floor | full_reviews=795 | included_reviews=795 | nearby_places=2317
+19. 4642205 | Your Home in Alfama - Free pick up | full_reviews=790 | included_reviews=790 | nearby_places=1861
+20. 785822 | Loft in Heritage Building with City View Terrace | full_reviews=786 | included_reviews=786 | nearby_places=2416
