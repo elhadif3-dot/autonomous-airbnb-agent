@@ -12,6 +12,7 @@ No live Airbnb account is accessed, no scraping is performed, and all page updat
 The listing page initially renders from the prepared Airbnb dataset. Agent edits are session-level simulated page updates; refreshing/re-entering the app starts again from the dataset state.
 
 Live LLM calls are disabled by default. The code runs in mock mode unless token usage is explicitly approved and enabled.
+Every request first passes a deterministic scope guard. Out-of-scope requests stop before LLM, Review RAG, Google Places, or page-edit tools are used.
 
 ## Architecture
 
@@ -61,3 +62,4 @@ Open `http://localhost:3000`.
 
 The project is currently LLM-ready but runs in `LLM_MODE=mock`.
 No LLMod.ai calls are made unless `LLM_MODE=live` is explicitly enabled and the project owner approves token usage.
+Use `LLM_LIVE_MODULES=agent,supervisor` to enable both live decision modules, or restrict this list during testing to reduce spend.

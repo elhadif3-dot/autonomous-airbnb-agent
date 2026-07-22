@@ -639,6 +639,15 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
     };
   }
 
+  if (typeof response.in_scope === "boolean") {
+    return {
+      title: response.in_scope ? "Request is in scope" : "Request stopped before tools",
+      status: response.in_scope ? "in scope" : "out of scope",
+      rationale: stringValue(response.reason),
+      observation: stringValue(response.token_safety)
+    };
+  }
+
   if (typeof response.decision === "string") {
     return {
       title: `Supervisor ${response.decision}`,

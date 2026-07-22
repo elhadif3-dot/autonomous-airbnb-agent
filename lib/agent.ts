@@ -6,6 +6,7 @@ import {
 import { enforceGuardrails, validateProposal } from "@/lib/guardrails";
 import { callLlmJson } from "@/lib/llmClient";
 import { LISTING_EDITOR_SYSTEM_PROMPT, SUPERVISOR_SYSTEM_PROMPT } from "@/lib/prompts";
+import { classifyPromptScope } from "@/lib/requestScope";
 import {
   AgentNextActionSchema,
   EditProposalSchema,
@@ -79,6 +80,36 @@ export async function executeListingAgent(prompt: string): Promise<ExecuteRespon
   const steps: AgentStep[] = [];
 
   try {
+    const scopeDecision = classifyPromptScope(prompt);
+    steps.push(step("Input Scope Guard", "Check whether the request belongs to the agent's allowed domain before using retrieval or LLM.", prompt, {
+      category: scopeDecision.category,
+      in_scope: scopeDecision.inScope,
+      reason: scopeDecision.reason,
+      token_safety: "No LLM, Review RAG, or Google Places calls happen before this guard passes."
+    }));
+
+    if (!scopeDecision.inScope) {
+      return {
+        status: "ok",
+        error: null,
+        response: scopeDecision.safeResponse,
+        steps,
+        page_update: null,
+        audit_log: null
+      };
+    }
+
+    if (scopeDecision.category === "capability_question") {
+      return {
+        status: "ok",
+        error: null,
+        response: scopeDecision.safeResponse,
+        steps,
+        page_update: null,
+        audit_log: null
+      };
+    }
+
     const listingId = extractListingId(prompt);
     if (!listingId) {
       return errorResponse(

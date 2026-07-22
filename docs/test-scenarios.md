@@ -71,6 +71,35 @@ Expected behavior:
 - Returns `status: error`.
 - Does not write an audit log.
 
+## Out Of Scope / No Token Waste
+
+Prompt:
+
+```text
+Selected listing id: 45855270
+Find me car tires in Lisbon.
+```
+
+Expected behavior:
+
+- Uses only `Input Scope Guard`.
+- Returns a safe "I don't know how to complete that request with my allowed tools" response.
+- Does not use LLM, Review RAG, Google Places, Supervisor, page update, or audit log.
+
+## Capability Question
+
+Prompt:
+
+```text
+What can you do?
+```
+
+Expected behavior:
+
+- Uses only `Input Scope Guard`.
+- Explains the agent's allowed capabilities and boundaries.
+- Does not require a listing id and does not use LLM.
+
 ## Weak Evidence
 
 Prompt:
