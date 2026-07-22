@@ -17,6 +17,7 @@ if (!argSet.has("--confirm-paid")) {
 }
 
 const limit = numberArg("--limit", 0);
+const offsetArg = Math.max(0, numberArg("--offset", 0));
 const batchSize = Math.max(1, numberArg("--batch-size", 32));
 const listingIds = listingIdsArg();
 const namespace = pineconeReviewNamespace();
@@ -26,11 +27,14 @@ const apiKey = requireEnv("PINECONE_API_KEY");
 const filteredRows = rowsToObjects(parseCsv(await readFile("lisbon_reviews_final_with_pois.csv", "utf8")))
   .filter((row) => row.listing_id && row.id && row.comments)
   .filter((row) => listingIds.length === 0 || listingIds.includes(row.listing_id));
-const rows = limit > 0 ? filteredRows.slice(0, limit) : filteredRows;
+const rowsAfterOffset = filteredRows.slice(offsetArg);
+const rows = limit > 0 ? rowsAfterOffset.slice(0, limit) : rowsAfterOffset;
 
 console.log(JSON.stringify({
   status: "prepared",
   rows: rows.length,
+  skipped_offset: offsetArg,
+  source_rows: filteredRows.length,
   listing_ids: listingIds.length,
   batch_size: batchSize,
   namespace,
@@ -91,17 +95,19 @@ async function embedTexts(texts) {
   const apiKey = requireEnv("LLMOD_API_KEY");
   const baseUrl = requireEnv("LLMOD_BASE_URL");
   const model = process.env.LLMOD_EMBEDDING_MODEL || "MB5R2CF-azure/text-embedding-3-small";
-  const response = await fetch(embeddingsUrl(baseUrl), {
+  const body = JSON.stringify({
+    model,
+    input: texts.map((text) => text.slice(0, 6000))
+  });
+
+  const response = await withRetry(() => fetch(embeddingsUrl(baseUrl), {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      model,
-      input: texts.map((text) => text.slice(0, 6000))
-    })
-  });
+    body
+  }));
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
@@ -115,6 +121,31 @@ async function embedTexts(texts) {
   }
 
   return embeddings;
+}
+
+async function withRetry(fn, attempts = 4) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) {
+        break;
+      }
+
+      const delayMs = 1500 * attempt;
+      console.warn(JSON.stringify({
+        status: "embedding_retry",
+        attempt,
+        next_delay_ms: delayMs,
+        error: error instanceof Error ? error.message : "Unknown error"
+      }));
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError;
 }
 
 function embeddingsUrl(baseUrl) {
