@@ -47,6 +47,27 @@ export function applySimulatedPageUpdate(
   proposal: EditProposal,
   decision: SupervisorDecision
 ): SimulatedPageUpdate {
+  if (decision === "Approve" && proposal.action === "restore_original_page") {
+    const page = getSimulatedListingPage(listing);
+    const before = page.currentDescription;
+    const updated = {
+      ...page,
+      currentDescription: listing.description,
+      updatedAt: new Date().toISOString()
+    };
+
+    store().pages.set(listing.id, updated);
+
+    return {
+      listingId: listing.id,
+      status: "executed",
+      field: "description",
+      before,
+      after: listing.description,
+      addedText: "Restored the simulated listing description to the original dataset text."
+    };
+  }
+
   if (
     decision !== "Approve" ||
     proposal.action !== "prepare_edit_proposal" ||

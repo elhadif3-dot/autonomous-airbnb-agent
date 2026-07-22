@@ -36,6 +36,10 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
     violations.push("invalid_edit_target");
   }
 
+  if (proposal.action === "restore_original_page" && !proposal.target_fields.includes("description")) {
+    violations.push("invalid_restore_target");
+  }
+
   if (proposal.action === "prepare_edit_proposal" && state) {
     const reviewsBelongToListing =
       !state.relevantReviews ||

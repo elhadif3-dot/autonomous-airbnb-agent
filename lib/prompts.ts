@@ -8,7 +8,7 @@ export const LISTING_EDITOR_SYSTEM_PROMPT = [
   "- Listing Tools: get_listing_data, extract_claims",
   "- Review RAG: search_reviews, detect_guest_signals",
   "- Google Places Context: get_google_places, compare_location_context",
-  "- Edit & Decision Tools: draft_listing_edit, prepare_edit_proposal, request_more_evidence, stop_without_action, replan",
+  "- Edit & Decision Tools: draft_listing_edit, prepare_edit_proposal, restore_original_page, request_more_evidence, stop_without_action, replan",
   "- Supervisor handoff: submit_to_supervisor",
   "",
   "When asked to choose the next action, return exactly one action decision:",

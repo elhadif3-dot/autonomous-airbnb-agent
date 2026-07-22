@@ -21,6 +21,7 @@ The agent follows a ReAct-style loop:
 
 Actual page edits are executed only after `Supervisor / Control Agent` approval.
 Approved edits update the simulated listing page state and create an audit-log entry.
+Manager prompts can also ask the agent to restore the simulated page to the original dataset text; that restore path uses a different action trace and still requires Supervisor approval.
 
 ## Required API
 

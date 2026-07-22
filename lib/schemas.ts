@@ -8,7 +8,7 @@ export type AgentIntentPlan = {
 };
 
 export type EditProposal = {
-  action: "prepare_edit_proposal" | "request_more_evidence" | "stop_without_action";
+  action: "prepare_edit_proposal" | "restore_original_page" | "request_more_evidence" | "stop_without_action";
   target_fields: string[];
   listing_id?: string;
   proposed_description_addition: string | null;
@@ -31,6 +31,7 @@ export const ALLOWED_TOOL_NAMES = [
   "compare_location_context",
   "draft_listing_edit",
   "prepare_edit_proposal",
+  "restore_original_page",
   "request_more_evidence",
   "stop_without_action",
   "replan",
@@ -61,7 +62,7 @@ export const AgentNextActionSchema = z.object({
 });
 
 export const EditProposalSchema = z.object({
-  action: z.enum(["prepare_edit_proposal", "request_more_evidence", "stop_without_action"]),
+  action: z.enum(["prepare_edit_proposal", "restore_original_page", "request_more_evidence", "stop_without_action"]),
   target_fields: z.array(EditableFieldSchema),
   listing_id: z.string().optional(),
   proposed_description_addition: z.string().nullable(),

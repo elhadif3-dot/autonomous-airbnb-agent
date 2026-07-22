@@ -69,7 +69,8 @@ const topicKeywords: Record<string, string[]> = {
   wifi: ["wifi", "wi-fi", "internet", "remote", "work"],
   cleanliness: ["clean", "spotless", "dirty", "dust", "smell"],
   comfort: ["bed", "comfortable", "comfy", "sleep"],
-  nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"]
+  nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
+  restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"]
 };
 
 const MAX_ACTIONS = 12;
@@ -163,6 +164,22 @@ function chooseNextAction(state: AgentState): AgentNextAction {
 
   if (!state.listing) {
     return action("get_listing_data", { listing_id: state.listingId }, "The agent needs the selected listing before choosing more tools.", "Listing data is missing.");
+  }
+
+  if (isRestoreRequest(state)) {
+    if (!state.proposal) {
+      return action("restore_original_page", { listing_id: state.listingId }, "The manager asked to undo the simulated edit, so the agent can restore the page from the read-only dataset source.", "A restore proposal is needed.");
+    }
+
+    if (!state.supervisor) {
+      return action("submit_to_supervisor", { listing_id: state.listingId }, "Even a restore action goes through Supervisor / Control Agent approval.", "Supervisor decision is missing.");
+    }
+
+    if (state.supervisor.decision === "Approve" && !state.auditLog) {
+      return action("prepare_edit_proposal", { listing_id: state.listingId, execute: true }, "Supervisor approved restoring the simulated page to the original dataset text.", "Approved restore still needs execution.");
+    }
+
+    return action("stop_without_action", {}, "The restore request reached a terminal state.", "Stop execution.", true);
   }
 
   if (!state.claims) {
@@ -303,7 +320,29 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
     }
 
     case "draft_listing_edit": {
-      if (!state.listing || !state.signals) {
+      if (!state.listing) {
+        throw new Error("Cannot draft an edit before listing data is loaded.");
+      }
+
+      if (isRestoreRequest(state)) {
+        const proposal = EditProposalSchema.parse({
+          action: "restore_original_page",
+          target_fields: ["description"],
+          listing_id: state.listing.id,
+          proposed_description_addition: null,
+          evidence_topics: ["Restore original dataset state"],
+          reason: "The manager rejected the simulated edit and asked to return the listing page to its original dataset text."
+        });
+        state.proposal = proposal;
+        steps.push(step("Edit & Decision Tools", "Draft a controlled restore action for the simulated listing page.", JSON.stringify(actionRequest.tool_input), {
+          proposed_action: proposal,
+          restore_source: "Original Airbnb listing row from the prepared dataset",
+          editable_scope: "Simulated page description only"
+        }));
+        return true;
+      }
+
+      if (!state.signals) {
         throw new Error("Cannot draft an edit before signals are detected.");
       }
 
@@ -316,23 +355,46 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       return true;
     }
 
+    case "restore_original_page": {
+      if (!state.listing) {
+        throw new Error("Cannot restore the page before listing data is loaded.");
+      }
+
+      const proposal = EditProposalSchema.parse({
+        action: "restore_original_page",
+        target_fields: ["description"],
+        listing_id: state.listing.id,
+        proposed_description_addition: null,
+        evidence_topics: ["Restore original dataset state"],
+        reason: "The manager rejected the simulated edit and asked to return the listing page to its original dataset text."
+      });
+      state.proposal = proposal;
+      steps.push(step("Edit & Decision Tools", "Restore the simulated listing page from the original read-only dataset text.", JSON.stringify(actionRequest.tool_input), {
+        proposed_action: proposal,
+        restore_source: "Original Airbnb listing row from the prepared dataset",
+        editable_scope: "Simulated page description only"
+      }));
+      return true;
+    }
+
     case "submit_to_supervisor": {
-      if (!state.proposal || !state.signals) {
+      if (!state.proposal || (!state.signals && state.proposal.action !== "restore_original_page")) {
         throw new Error("Cannot submit to Supervisor before an edit proposal exists.");
       }
 
       const guardrails = validateProposal(state.proposal, state);
+      const signals = state.signals ?? [];
       const supervisorDraft = await callLlmJson<SupervisorOutput>({
         module: "Supervisor / Control Agent",
         messages: [
           { role: "system", content: SUPERVISOR_SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify({ proposal: state.proposal, signals: state.signals, guardrails }) }
+          { role: "user", content: JSON.stringify({ proposal: state.proposal, signals, guardrails }) }
         ],
-        mockResponse: supervise(state.proposal, state.signals, guardrails.passed)
+        mockResponse: supervise(state.proposal, signals, guardrails.passed)
       });
       state.supervisor = SupervisorOutputSchema.parse(enforceGuardrails(state.proposal, supervisorDraft, state));
 
-      steps.push(step("Supervisor / Control Agent", SUPERVISOR_SYSTEM_PROMPT, JSON.stringify({ proposal: state.proposal, signals: state.signals, guardrails }), {
+      steps.push(step("Supervisor / Control Agent", SUPERVISOR_SYSTEM_PROMPT, JSON.stringify({ proposal: state.proposal, signals, guardrails }), {
         ...state.supervisor,
         guardrails
       }));
@@ -642,6 +704,13 @@ function supervise(proposal: EditProposal, signals: Signal[], guardrailsPassed: 
     };
   }
 
+  if (proposal.action === "restore_original_page") {
+    return {
+      decision: "Approve",
+      rationale: "The action restores the simulated listing page to the original read-only dataset text and does not modify reviews, Places data, pricing, or live Airbnb."
+    };
+  }
+
   const hasStrongSignal = signals.some((signal) => signal.type !== "insufficient_evidence" && signal.primaryEvidenceCount >= 2);
 
   if (hasStrongSignal) {
@@ -679,6 +748,16 @@ function finalResponse(state: AgentState): string {
   }
 
   if (state.supervisor?.decision === "Approve" && state.pageUpdate?.status === "executed") {
+    if (state.proposal?.action === "restore_original_page") {
+      return [
+        `Approved and executed in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
+        "",
+        "The simulated listing description was restored to the original dataset text.",
+        "",
+        "No source CSV, guest review, Google Places row, or live Airbnb account was changed. The restore action was recorded in the audit log."
+      ].join("\n");
+    }
+
     return [
       `Approved and executed in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
       "",
@@ -694,6 +773,10 @@ function finalResponse(state: AgentState): string {
   }
 
   return `No action was taken for listing ${state.listing.id}. The agent did not find enough validated evidence for a safe page update. No live Airbnb account was accessed.`;
+}
+
+function isRestoreRequest(state: AgentState): boolean {
+  return state.intent.includes("restore_original");
 }
 
 function stopProposal(listingId: string, reason = "No strong, editable gap was found."): EditProposal {

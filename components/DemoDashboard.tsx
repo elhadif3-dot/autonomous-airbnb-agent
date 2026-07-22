@@ -39,27 +39,37 @@ type Props = {
   listings: DemoListing[];
 };
 
-const promptExamples = [
-  {
-    label: "Add nearby highlights",
-    hint: "Use reviews + Lisbon context",
-    prompt: "Find positive nearby highlights that are missing from the listing page and add only evidence-backed text."
-  },
-  {
-    label: "Find listing gaps",
-    hint: "Compare page vs reviews",
-    prompt: "Check this listing for gaps between guest reviews and the current page. If there is a justified edit, update the simulated page."
-  },
-  {
-    label: "Check quiet claims",
-    hint: "Edit only with strong evidence",
-    prompt: "Review whether the listing overpromises quietness or location convenience. Edit only if the evidence is strong."
-  }
-];
+const defaultPrompt =
+  "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
+
+function promptExamples(listingName: string) {
+  return [
+    {
+      label: "Improve end to end",
+      hint: "Find evidence, edit the page, explain why",
+      prompt: `Hi, I manage several Airbnb listings in Lisbon. Please handle "${listingName}" end to end: compare the current page with guest reviews and nearby context, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.`
+    },
+    {
+      label: "Add missing nearby value",
+      hint: "Turn positive location evidence into page text",
+      prompt: `For "${listingName}", find positive nearby highlights that are missing from the listing page. Use Airbnb reviews as primary evidence and Google Places only as supporting context. If approved, add concise guest-facing text to the simulated page.`
+    },
+    {
+      label: "Fix expectation mismatch",
+      hint: "Correct overpromising only when evidence is strong",
+      prompt: `Review "${listingName}" for a gap between what the page promises and what guests actually report, especially quietness, location convenience, hills, Wi-Fi, or comfort. If the evidence is strong, edit the simulated listing page and explain the benefit.`
+    },
+    {
+      label: "Undo last page edit",
+      hint: "Restore original dataset text",
+      prompt: `I did not like the simulated edit on "${listingName}". Restore this listing page to the original dataset text and record what you restored.`
+    }
+  ];
+}
 
 export function DemoDashboard({ listings }: Props) {
   const [selectedId, setSelectedId] = useState(listings[0]?.id ?? "");
-  const [prompt, setPrompt] = useState(promptExamples[0].prompt);
+  const [prompt, setPrompt] = useState(defaultPrompt);
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
@@ -69,6 +79,8 @@ export function DemoDashboard({ listings }: Props) {
     () => listings.find((listing) => listing.id === selectedId) ?? listings[0],
     [listings, selectedId]
   );
+
+  const examples = useMemo(() => promptExamples(selectedListing?.name ?? "this listing"), [selectedListing?.name]);
 
   async function runAgent() {
     if (!selectedListing) {
@@ -229,6 +241,7 @@ export function DemoDashboard({ listings }: Props) {
               resetPage={resetPage}
               isRunning={isRunning}
               result={result}
+              examples={examples}
             />
             <ReservationCard listing={selectedListing} />
           </aside>
@@ -278,7 +291,8 @@ function AgentFeatureBar({
   runAgent,
   resetPage,
   isRunning,
-  result
+  result,
+  examples
 }: {
   prompt: string;
   setPrompt: (value: string) => void;
@@ -286,6 +300,7 @@ function AgentFeatureBar({
   resetPage: () => void;
   isRunning: boolean;
   result: ExecuteResponse | null;
+  examples: ReturnType<typeof promptExamples>;
 }) {
   return (
     <section className="agentDock">
@@ -295,13 +310,13 @@ function AgentFeatureBar({
         </div>
         <div>
           <span className="agentEyebrow">Autonomous Listing Editor</span>
-          <h2>Improve this listing page</h2>
-          <p>Ask for an evidence-backed page edit. The source data stays read-only.</p>
+          <h2>Ask the agent to update this page</h2>
+          <p>Give a property-manager request. The agent chooses actions, edits the simulated page, and explains the result.</p>
         </div>
       </div>
 
       <div className="promptExamples">
-        {promptExamples.map((example) => (
+        {examples.map((example) => (
           <button type="button" key={example.label} onClick={() => setPrompt(example.prompt)}>
             <strong>{example.label}</strong>
             <span>{example.hint}</span>
@@ -310,7 +325,7 @@ function AgentFeatureBar({
       </div>
 
       <label className="promptLabel" htmlFor="agent-prompt">
-        Open request
+        Open end-to-end request
       </label>
       <textarea
         id="agent-prompt"
@@ -333,7 +348,7 @@ function AgentFeatureBar({
 
       <div className="agentActions">
         <button className="primaryButton" type="button" onClick={runAgent} disabled={isRunning}>
-          {isRunning ? "Running..." : "Run Agent"}
+          {isRunning ? "Running..." : "Run Autonomous Agent"}
         </button>
         <button className="ghostButton" type="button" onClick={resetPage}>
           Reset Page
@@ -342,7 +357,7 @@ function AgentFeatureBar({
 
       {!result ? (
         <div className="emptyState">
-          Action Trace will show selected tools, observations, Supervisor decision, page update, and audit log.
+          Action Trace will show the actions the agent selected, tool observations, Supervisor decision, page update, and audit log.
         </div>
       ) : (
         <AgentResult result={result} />
@@ -452,6 +467,7 @@ function ReservationCard({ listing }: { listing: DemoListing }) {
 function AgentResult({ result }: { result: ExecuteResponse }) {
   const supervisorStep = result.steps.find((step) => step.module === "Supervisor / Control Agent");
   const decision = getDecision(supervisorStep);
+  const evidenceTopics = getEvidenceTopics(result.audit_log?.proposal);
 
   return (
     <div className="result">
@@ -463,8 +479,15 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
 
       {result.page_update ? (
         <div className="auditBox">
-          <h4>What changed on the simulated page</h4>
+          <h4>End-to-end page result</h4>
           <p>Status: {result.page_update.status}</p>
+          {result.page_update.status === "executed" ? (
+            <p>
+              The agent completed the request on the simulated page, updated only the allowed listing text, and kept the source
+              reviews, CSV rows, Places data, booking data, and pricing read-only.
+            </p>
+          ) : null}
+          {evidenceTopics.length > 0 ? <p>Why this helps: {evidenceTopics.join(", ")}.</p> : null}
           {result.page_update.status === "executed" ? (
             <div className="diffGrid">
               <div>
@@ -559,6 +582,19 @@ function getDecision(step?: AgentStep): string | null {
 
   const response = step.response as { decision?: string };
   return response.decision ?? null;
+}
+
+function getEvidenceTopics(proposal: unknown): string[] {
+  if (!proposal || typeof proposal !== "object") {
+    return [];
+  }
+
+  const value = proposal as { evidence_topics?: unknown };
+  if (!Array.isArray(value.evidence_topics)) {
+    return [];
+  }
+
+  return value.evidence_topics.filter((topic): topic is string => typeof topic === "string");
 }
 
 function amenityIcon(amenity: string) {
