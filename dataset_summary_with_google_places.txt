@@ -1,0 +1,21 @@
+Lisbon short-term rentals dataset with Google Maps places
+
+Input Google Maps places file: lisbon_googlemaps_locations.csv
+Original listings row count: 7,523
+Final listings row count: 5,596
+Original reviews row count: 97,760
+Final reviews row count: 72,744
+Original Google Maps places row count: 5,129
+Final Google Maps places row count: 4,211
+Radius used: 2 km
+Total final size in MB: 49.48
+Listings CSV size in MB: 7.27
+Reviews CSV size in MB: 24.69
+Google Maps places CSV size in MB: 17.52
+Number of removed listings: 1,927
+Number of removed reviews: 25,016
+
+The files are kept separate intentionally.
+Airbnb reviews are the main RAG source.
+Airbnb listings are the structured property source.
+Google Maps places/reviews are an external environmental context source.
