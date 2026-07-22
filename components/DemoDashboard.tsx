@@ -654,7 +654,7 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
         <div className="auditBox">
           <h4>Portfolio result</h4>
           <p>
-            {result.portfolio_update.executed} of {result.portfolio_update.requestedListings} managed listings were updated.
+            {result.portfolio_update.executed} of {result.portfolio_update.requestedListings} managed listings were updated in the current demo session.
             {result.portfolio_update.skipped > 0 ? ` ${result.portfolio_update.skipped} were left unchanged.` : ""}
           </p>
           <div className="portfolioList">
@@ -826,6 +826,17 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
     };
   }
 
+  if (typeof response.listing_name === "string" && typeof response.status === "string") {
+    return {
+      title: `${response.listing_name}: ${labelFromSnake(response.status)}`,
+      status: response.status,
+      rationale: Array.isArray(response.selected_actions)
+        ? `Selected actions: ${arrayOfStrings(response.selected_actions).join(" -> ")}.`
+        : undefined,
+      observation: stringValue(response.response)
+    };
+  }
+
   if (typeof response.decision === "string") {
     return {
       title: `Supervisor ${response.decision}`,
@@ -860,17 +871,6 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
       status: `${response.requested_listings} listings`,
       rationale: stringValue(response.selection_rule),
       observation: stringValue(response.token_safety)
-    };
-  }
-
-  if (typeof response.listing_name === "string" && typeof response.status === "string") {
-    return {
-      title: `${response.listing_name}: ${labelFromSnake(response.status)}`,
-      status: response.status,
-      rationale: Array.isArray(response.selected_actions)
-        ? `Selected actions: ${arrayOfStrings(response.selected_actions).join(" -> ")}.`
-        : undefined,
-      observation: stringValue(response.response)
     };
   }
 

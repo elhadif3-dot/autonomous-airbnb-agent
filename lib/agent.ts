@@ -294,7 +294,7 @@ async function executePortfolioAgent(
     error: null,
     response: [
       `Portfolio request completed for ${results.length} managed Lisbon listings.`,
-      `${executed} simulated listing pages were updated; ${skipped} were left unchanged because the agent did not have a safe approved edit.`,
+      `${executed} in-session simulated listing pages were updated; ${skipped} were left unchanged because the agent did not have a safe approved edit.`,
       "Each listing used its own evidence check, Supervisor decision, and read-only data boundaries. No live Airbnb account was accessed."
     ].join("\n"),
     steps,
@@ -1168,38 +1168,38 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
   const selectedSignals = editableSignals.slice(0, 2);
   const additions = selectedSignals.map((signal) => {
     if (signal.topic === "Historic Lisbon hills") {
-      return "Guest note: this historic Lisbon area is rewarding to explore on foot, and some nearby streets include steep walks.";
+      return "A great fit for guests who want to explore historic Lisbon on foot; some nearby streets are steep, so comfortable walking shoes are recommended.";
     }
     if (signal.topic === "Access and stairs expectations") {
-      return "Guest expectation note: guests mention stairs or stepped access, so this stay is best for guests comfortable with Lisbon-style building access.";
+      return "Best suited for guests who are comfortable with stairs or stepped access, a detail previous guests mention and appreciate knowing before arrival.";
     }
     if (signal.topic === "Noise expectations") {
-      return "Guest note: the apartment is in an active Lisbon neighborhood, so occasional street activity may be heard.";
+      return "This stay suits guests who enjoy being close to Lisbon's lively center; as in many central neighborhoods, some street activity may be part of the experience.";
     }
     if (signal.topic === "Temperature expectations") {
-      return "Guest expectation note: some guests mention the room can feel warm in hotter periods, so expectations should be set accordingly.";
+      return "During warmer Lisbon periods, guests who prefer cooler rooms may want to plan accordingly; this note helps set the right comfort expectations before booking.";
     }
     if (signal.topic === "Space expectations") {
-      return "Guest expectation note: guests describe the space as compact, making it best suited for travelers who value location and efficiency.";
+      return "The space is best for travelers who value a smart central base over extra room, with guest reviews pointing to location and convenience as the main strengths.";
     }
     if (signal.topic === "Guest-confirmed walkable location") {
-      return "Guest location note: reviews repeatedly highlight the central, walkable Lisbon location and easy access to nearby sights or transport.";
+      return "Guests consistently highlight the walkable central location, making it easy to reach Lisbon sights, restaurants, and transport without planning every outing around a car.";
     }
     if (signal.topic === "Guest-mentioned view") {
-      return "Guest view note: guests repeatedly mention the view as a memorable part of the stay.";
+      return "The view is one of the stay's guest-mentioned highlights, adding a memorable Lisbon backdrop to the visit.";
     }
     if (signal.topic === "Guest-confirmed cleanliness") {
-      return "Guest cleanliness note: reviews repeatedly describe the place as clean and well kept.";
+      return "Reviews repeatedly describe the place as clean and well kept, which helps guests book with more confidence.";
     }
     if (signal.topic === "Guest-confirmed comfort") {
-      return "Guest comfort note: reviews repeatedly mention a comfortable stay and good sleep experience.";
+      return "Guests repeatedly mention a comfortable stay and good sleep experience, making the property a strong fit after full days exploring Lisbon.";
     }
     if (signal.topic === "Remote-work readiness") {
-      return "Work-friendly note: guests mention the setup works well for short remote-work stays.";
+      return "For guests mixing travel with work, reviews and listed amenities support a practical short remote-work setup.";
     }
     if (signal.topic === "Nearby guest highlights") {
       const placeNames = signal.evidence.filter((item) => !item.includes("...")).slice(-3);
-      return `Nearby highlights: ${placeNames.join(", ")} are located within the surrounding Lisbon area.`;
+      return `Guests who like having useful options close by can use the surrounding area as a convenient base, with nearby local options such as ${placeNames.join(", ")}.`;
     }
     return signal.recommendation;
   });
