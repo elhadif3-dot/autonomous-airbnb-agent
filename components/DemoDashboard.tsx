@@ -86,12 +86,12 @@ function promptExamples(listingName: string) {
       prompt: `For "${listingName}", focus only on gaps between the current page and guest reviews. Decide which review-backed gap matters most for booking expectations, edit the simulated description only if the evidence is strong, and explain why that change improves the page.`
     },
     {
-      label: "Nearby places within 1 km",
+      label: "Excellent nearby places within 1 km",
       hint: "Google rating, reviews, distance",
       prompt: `For "${listingName}", focus only on nearby places worth highlighting within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance from the listing. Do not search for general review gaps. If there are places strong enough to make the stay more attractive, add a concise natural sentence to the simulated description with the place names, ratings, Google review counts, and approximate distance. If no nearby place is strong enough, stop without editing.`
     },
     {
-      label: "Polish listing copy",
+      label: "Polish listing",
       hint: "Rewrite current text, preserve facts",
       prompt: `For "${listingName}", do not search reviews and do not use Google Places. Polish only the current simulated description so it reads more natural, persuasive, and guest-facing. Preserve all existing facts, place names, ratings, Google review counts, distances, amenities, and evidence-backed notes.`
     },
@@ -468,8 +468,8 @@ function AgentFeatureBar({
         </div>
         <div>
           <span className="agentEyebrow">Autonomous Listing Editor</span>
-          <h2>Ask the agent to update this page</h2>
-          <p>Give a property-manager request. The agent chooses actions, edits the simulated page, and explains the result.</p>
+          <h2>Improve this listing page</h2>
+          <p>Ask for a listing update. The agent selects actions, edits only allowed demo text, and reports what changed.</p>
         </div>
       </div>
 
@@ -495,11 +495,11 @@ function AgentFeatureBar({
 
       <div className="scopeBox">
         <div>
-          <strong>Can edit</strong>
+          <strong>Editable in demo</strong>
           <span>Description, guest expectation notes, nearby highlights text</span>
         </div>
         <div>
-          <strong>Read-only</strong>
+          <strong>Read-only sources</strong>
           <span>Reviews, original CSV data, prices, bookings, Google Places source rows</span>
         </div>
       </div>
