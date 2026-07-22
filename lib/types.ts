@@ -116,6 +116,7 @@ export type SimulatedPageUpdate = {
   before: string | null;
   after: string | null;
   addedText: string | null;
+  reason?: string;
 };
 
 export type AuditLogEntry = {

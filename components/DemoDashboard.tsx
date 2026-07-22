@@ -868,9 +868,10 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
     return {
       title: response.page_update.status === "executed" ? "Executed approved page update" : "No page update executed",
       status: stringValue(response.page_update.status),
-      observation: isRecord(response.audit_log)
-        ? `Audit log recorded for ${stringValue(response.audit_log.listingName) ?? "the selected listing"}.`
-        : "The simulated page state was handled according to the Supervisor decision."
+      observation: stringValue(response.page_update.reason) ??
+        (isRecord(response.audit_log)
+          ? `Audit log recorded for ${stringValue(response.audit_log.listingName) ?? "the selected listing"}.`
+          : "The simulated page state was handled according to the Supervisor decision.")
     };
   }
 

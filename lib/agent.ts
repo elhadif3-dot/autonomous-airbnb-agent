@@ -731,7 +731,9 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot draft an edit before signals are detected.");
       }
 
-      const proposal = EditProposalSchema.parse(draftEdit(state.listing, state.signals));
+      const proposal = EditProposalSchema.parse(
+        draftEdit(state.listing, state.signals, state.page?.currentDescription ?? state.listing.description)
+      );
       state.proposal = proposal;
       steps.push(step("Edit & Decision Tools", "Draft a narrow page edit, ask for more evidence, or stop.", JSON.stringify(actionRequest.tool_input), {
         proposed_action: proposal,
@@ -1589,13 +1591,29 @@ function limitSignalEvidence(signal: Signal): Signal {
   };
 }
 
-function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
+function draftEdit(listing: Listing, signals: Signal[], currentDescription: string): EditProposal {
   const editableSignals = signals
-    .filter((signal) => signal.type !== "insufficient_evidence" && signal.primaryEvidenceCount >= 2)
+    .filter(
+      (signal) =>
+        signal.type !== "insufficient_evidence" &&
+        signal.primaryEvidenceCount >= 2 &&
+        !descriptionAlreadyCoversSignal(currentDescription, signal.topic)
+    )
     .sort((a, b) => signalPriority(a) - signalPriority(b));
 
   if (editableSignals.length === 0) {
-    const weakEditableSignals = signals.filter((signal) => signal.type !== "insufficient_evidence" && signal.primaryEvidenceCount > 0);
+    const coveredStrongSignals = signals.filter(
+      (signal) =>
+        signal.type !== "insufficient_evidence" &&
+        signal.primaryEvidenceCount >= 2 &&
+        descriptionAlreadyCoversSignal(currentDescription, signal.topic)
+    );
+    const weakEditableSignals = signals.filter(
+      (signal) =>
+        signal.type !== "insufficient_evidence" &&
+        signal.primaryEvidenceCount > 0 &&
+        !descriptionAlreadyCoversSignal(currentDescription, signal.topic)
+    );
     if (weakEditableSignals.length > 0) {
       return {
         action: "request_more_evidence",
@@ -1605,6 +1623,16 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
         target_fields: [],
         evidence_topics: weakEditableSignals.map((signal) => signal.topic)
       };
+    }
+
+    if (coveredStrongSignals.length > 0) {
+      return stopProposal(
+        listing.id,
+        `The current simulated description already covers the strongest supported topics: ${coveredStrongSignals
+          .slice(0, 4)
+          .map((signal) => signal.topic)
+          .join(", ")}.`
+      );
     }
 
     return stopProposal(listing.id, "No strong, editable gap was found.");
@@ -1660,6 +1688,56 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
     proposed_description_addition: additions.join(" "),
     evidence_topics: selectedSignals.map((signal) => signal.topic)
   };
+}
+
+function descriptionAlreadyCoversSignal(description: string, topic: string): boolean {
+  const normalized = normalizeTextForCoverage(description);
+  const includesAny = (patterns: string[]) => patterns.some((pattern) => normalized.includes(pattern));
+
+  if (topic === "Historic Lisbon hills") {
+    return includesAny(["steep", "hill", "comfortable walking shoes", "historic lisbon on foot"]);
+  }
+  if (topic === "Access and stairs expectations") {
+    return includesAny(["comfortable with stairs", "stepped access", "stairs or stepped access", "luggage expectations"]);
+  }
+  if (topic === "Noise expectations") {
+    return includesAny(["lively center", "street activity", "busy central", "part of the experience", "noise expectations"]);
+  }
+  if (topic === "Temperature expectations") {
+    return includesAny(["warmer lisbon", "cooler rooms", "temperature expectations", "plan accordingly"]);
+  }
+  if (topic === "Space expectations") {
+    return includesAny(["smart central base over extra room", "compact", "space is best", "value a smart central base"]);
+  }
+  if (topic === "Guest-confirmed walkable location") {
+    return includesAny(["guests consistently highlight the walkable", "walkable central location", "guest confirmed walkable", "easy to reach lisbon"]);
+  }
+  if (topic === "Guest-mentioned view") {
+    return includesAny(["guest mentioned highlights", "view is one", "lisbon backdrop"]);
+  }
+  if (topic === "Guest-confirmed cleanliness") {
+    return includesAny(["clean and well kept", "reviews repeatedly describe", "guest confirmed cleanliness"]);
+  }
+  if (topic === "Guest-confirmed comfort") {
+    return includesAny(["comfortable stay", "good sleep experience", "guest confirmed comfort"]);
+  }
+  if (topic === "Remote-work readiness") {
+    return includesAny(["remote work setup", "mixing travel with work", "wi fi work setup"]);
+  }
+  if (topic === "Rated nearby guest options" || topic === "Rated nearby dining options") {
+    return includesAny(["highly rated nearby", "google reviews", "nearby dining options", "nearby options such as"]);
+  }
+
+  return false;
+}
+
+function normalizeTextForCoverage(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[-–—]/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function selectSignalsForEdit(signals: Signal[]): Signal[] {
@@ -2078,8 +2156,27 @@ function finalResponse(state: AgentState): string {
     ].join("\n");
   }
 
+  if (state.pageUpdate?.status === "not_executed") {
+    const reason = state.pageUpdate.reason ?? state.proposal?.reason ?? state.supervisor?.rationale ?? "No effective page change was available.";
+    return [
+      `No new page update was executed for listing ${state.listing.id}: ${state.listing.name}.`,
+      "",
+      reason,
+      "",
+      state.proposal?.evidence_topics?.length
+        ? `Evidence considered: ${state.proposal.evidence_topics.join("; ")}.`
+        : "The agent stopped without changing the current simulated description.",
+      "",
+      "No live Airbnb account was accessed. Source reviews, Google Places rows, pricing, bookings, and guest reviews remained read-only."
+    ].join("\n");
+  }
+
   if (state.supervisor?.decision === "Revise") {
     return `The Supervisor requested revision for listing ${state.listing.id}. The agent replanned once and stopped because a safe approved edit was not available. No live Airbnb account was accessed.`;
+  }
+
+  if (state.supervisor?.decision === "Block") {
+    return `No page update was executed for listing ${state.listing.id}: ${state.listing.name}. Supervisor blocked the action: ${state.supervisor.rationale} No live Airbnb account was accessed.`;
   }
 
   if (state.stopReason) {

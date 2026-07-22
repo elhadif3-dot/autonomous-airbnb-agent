@@ -60,6 +60,19 @@ export function applySimulatedPageUpdate(
   if (decision === "Approve" && proposal.action === "restore_original_page") {
     const page = getSimulatedListingPage(listing);
     const before = page.currentDescription;
+
+    if (normalizedText(before) === normalizedText(listing.description)) {
+      return {
+        listingId: listing.id,
+        status: "not_executed",
+        field: "description",
+        before,
+        after: before,
+        addedText: null,
+        reason: "The simulated page was already at the original dataset description."
+      };
+    }
+
     const updated = {
       ...page,
       currentDescription: listing.description,
@@ -90,13 +103,27 @@ export function applySimulatedPageUpdate(
       field: null,
       before: null,
       after: null,
-      addedText: null
+      addedText: null,
+      reason: "The proposal was not approved for execution."
     };
   }
 
   const page = getSimulatedListingPage(listing);
   const before = page.currentDescription;
   const after = appendIfMissing(before, proposal.proposed_description_addition);
+
+  if (normalizedText(after) === normalizedText(before)) {
+    return {
+      listingId: listing.id,
+      status: "not_executed",
+      field: "description",
+      before,
+      after,
+      addedText: null,
+      reason: "The current simulated description already contains the proposed update, so no new page change was executed."
+    };
+  }
+
   const updated = {
     ...page,
     currentDescription: after,
@@ -159,9 +186,17 @@ export function resetSimulatedListingPage(listing: Listing): SimulatedListingPag
 }
 
 function appendIfMissing(description: string, addition: string): string {
-  if (description.includes(addition)) {
+  if (normalizedText(description).includes(normalizedText(addition))) {
     return description;
   }
 
   return `${description}\n\n${addition}`;
+}
+
+function normalizedText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

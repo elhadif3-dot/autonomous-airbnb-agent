@@ -8,6 +8,9 @@ export type GuardrailResult = {
 
 type EvidenceState = {
   listingId?: string;
+  page?: {
+    currentDescription?: string;
+  };
   relevantReviews?: Review[];
   signals?: Array<{
     type: string;
@@ -62,12 +65,29 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
     if (strongestPrimaryEvidence < 2) {
       violations.push("insufficient_primary_evidence");
     }
+
+    const currentDescription = state.page?.currentDescription;
+    if (
+      currentDescription &&
+      proposal.proposed_description_addition &&
+      normalizedText(currentDescription).includes(normalizedText(proposal.proposed_description_addition))
+    ) {
+      violations.push("no_effective_page_change");
+    }
   }
 
   return {
     passed: violations.length === 0,
     violations
   };
+}
+
+function normalizedText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function enforceGuardrails(
