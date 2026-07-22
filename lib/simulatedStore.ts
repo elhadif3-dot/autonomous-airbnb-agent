@@ -55,8 +55,43 @@ export function getSimulatedListingPage(listing: Listing, currentDescriptionOver
 export function applySimulatedPageUpdate(
   listing: Listing,
   proposal: EditProposal,
-  decision: SupervisorDecision
+  decision: SupervisorDecision,
+  previousDescription?: string
 ): SimulatedPageUpdate {
+  if (decision === "Approve" && proposal.action === "restore_previous_page") {
+    const page = getSimulatedListingPage(listing);
+    const before = page.currentDescription;
+
+    if (!previousDescription || normalizedText(previousDescription) === normalizedText(before)) {
+      return {
+        listingId: listing.id,
+        status: "not_executed",
+        field: "description",
+        before,
+        after: before,
+        addedText: null,
+        reason: "No previous simulated page version was available to restore."
+      };
+    }
+
+    const updated = {
+      ...page,
+      currentDescription: previousDescription,
+      updatedAt: new Date().toISOString()
+    };
+
+    store().pages.set(listing.id, updated);
+
+    return {
+      listingId: listing.id,
+      status: "executed",
+      field: "description",
+      before,
+      after: previousDescription,
+      addedText: "Restored the simulated listing description to the previous version text."
+    };
+  }
+
   if (decision === "Approve" && proposal.action === "restore_original_page") {
     const page = getSimulatedListingPage(listing);
     const before = page.currentDescription;
@@ -88,6 +123,46 @@ export function applySimulatedPageUpdate(
       before,
       after: listing.description,
       addedText: "Restored the simulated listing description to the original dataset text."
+    };
+  }
+
+  if (
+    decision === "Approve" &&
+    proposal.action === "replace_description" &&
+    proposal.proposed_description_replacement &&
+    proposal.target_fields.includes("description")
+  ) {
+    const page = getSimulatedListingPage(listing);
+    const before = page.currentDescription;
+    const after = proposal.proposed_description_replacement.trim();
+
+    if (normalizedText(after) === normalizedText(before)) {
+      return {
+        listingId: listing.id,
+        status: "not_executed",
+        field: "description",
+        before,
+        after: before,
+        addedText: null,
+        reason: "The rewritten description did not create an effective page change."
+      };
+    }
+
+    const updated = {
+      ...page,
+      currentDescription: after,
+      updatedAt: new Date().toISOString()
+    };
+
+    store().pages.set(listing.id, updated);
+
+    return {
+      listingId: listing.id,
+      status: "executed",
+      field: "description",
+      before,
+      after,
+      addedText: after
     };
   }
 

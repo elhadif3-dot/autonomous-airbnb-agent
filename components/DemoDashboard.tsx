@@ -65,6 +65,11 @@ function createDemoSessionId(): string {
   return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function getProposalAction(result: ExecuteResponse): string | null {
+  const proposal = result.audit_log?.proposal;
+  return isRecord(proposal) ? stringValue(proposal.action) ?? null : null;
+}
+
 const defaultPrompt =
   "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
 
@@ -86,6 +91,11 @@ function promptExamples(listingName: string) {
       prompt: `For "${listingName}", focus only on nearby guest value within about 1 km. Use Airbnb location reviews as the primary evidence and Google Places only for supporting names, ratings, Google review counts, and approximate distance. Edit the simulated description only if the nearby value is useful and evidence-backed.`
     },
     {
+      label: "Polish listing copy",
+      hint: "Rewrite current text, preserve facts",
+      prompt: `For "${listingName}", do not search reviews and do not use Google Places. Polish only the current simulated description so it reads more natural, persuasive, and guest-facing. Preserve all existing facts, place names, ratings, Google review counts, distances, amenities, and evidence-backed notes.`
+    },
+    {
       label: "Find property fixes",
       hint: "Recommend fixes from guest complaints",
       prompt: `For "${listingName}", do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.`
@@ -97,8 +107,8 @@ function promptExamples(listingName: string) {
     },
     {
       label: "Undo last page edit",
-      hint: "Restore original dataset text",
-      prompt: `I did not like the simulated edit on "${listingName}". Restore this listing page to the original dataset text and record what you restored.`
+      hint: "Restore previous version text",
+      prompt: `I did not like the simulated edit on "${listingName}". Restore this listing page to the previous version text and record what you restored.`
     }
   ];
 }
@@ -112,6 +122,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
   const [isRunning, setIsRunning] = useState(false);
   const [isLoadingListing, setIsLoadingListing] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
+  const [descriptionHistory, setDescriptionHistory] = useState<Record<string, string[]>>({});
   const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
 
   const selectedListing = useMemo(
@@ -151,6 +162,8 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
 
     setIsRunning(true);
     setResult(null);
+    const listingHistory = descriptionHistory[selectedListing.id] ?? [];
+    const previousPageDescription = listingHistory[listingHistory.length - 1];
     const portfolioPageDescriptions = initialListings.reduce<Record<string, string>>((values, listing) => {
       values[listing.id] = simulatedDescriptions[listing.id] ?? listing.description;
       return values;
@@ -169,6 +182,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         body: JSON.stringify({
           prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
           current_page_description: currentDescription,
+          previous_page_description: previousPageDescription,
           portfolio_page_descriptions: portfolioPageDescriptions,
           session_id: demoSessionId
         })
@@ -186,6 +200,26 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
 
       setResult(payload);
       if (payload.page_update?.status === "executed" && payload.page_update.after) {
+        const proposalAction = getProposalAction(payload);
+        const listingId = payload.page_update.listingId;
+        setDescriptionHistory((current) => {
+          const stack = current[listingId] ?? [];
+          if (proposalAction === "restore_previous_page") {
+            return {
+              ...current,
+              [listingId]: stack.slice(0, -1)
+            };
+          }
+
+          if (!payload.page_update?.before || payload.page_update.before === payload.page_update.after) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [listingId]: [...stack, payload.page_update.before].slice(-12)
+          };
+        });
         setSimulatedDescriptions((current) => ({
           ...current,
           [payload.page_update!.listingId]: payload.page_update!.after!
@@ -239,6 +273,10 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     setSimulatedDescriptions((current) => ({
       ...current,
       [selectedListing.id]: selectedListing.description
+    }));
+    setDescriptionHistory((current) => ({
+      ...current,
+      [selectedListing.id]: []
     }));
     setResult(null);
   }

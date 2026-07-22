@@ -29,17 +29,35 @@ Prompt:
 
 ```text
 Selected listing id: 45855270
-I did not like the simulated edit. Restore this listing page to the original dataset text and record what you restored.
+I did not like the simulated edit. Restore this listing page to the previous version text and record what you restored.
 ```
 
 Expected behavior:
 
 - Uses Listing Tools.
-- Chooses `restore_original_page`.
+- Chooses `restore_previous_page`.
 - Does not retrieve reviews or Google Places because the request is a controlled restore.
 - Submits to Supervisor.
-- Restores only the simulated page description from the original dataset row.
+- Restores only the simulated page description to the previous in-session version.
 - Writes an audit log.
+
+## Copy Polish Only
+
+Prompt:
+
+```text
+Selected listing id: 45855270
+For Rossio Garden Hotel, do not search reviews and do not use Google Places. Polish only the current simulated description so it reads more natural, persuasive, and guest-facing. Preserve all existing facts, place names, ratings, Google review counts, distances, amenities, and evidence-backed notes.
+```
+
+Expected behavior:
+
+- Uses `Input Scope Guard`.
+- Uses Listing Tools.
+- Chooses `draft_description_polish`.
+- Does not retrieve Review RAG or Google Places.
+- Submits the replacement description to Supervisor.
+- Executes a `replace_description` update only if the wording actually changes and protected facts are preserved.
 
 ## Manager Property Recommendations
 

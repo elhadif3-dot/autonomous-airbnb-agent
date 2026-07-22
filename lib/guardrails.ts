@@ -39,11 +39,22 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
     violations.push("invalid_edit_target");
   }
 
+  if (
+    proposal.action === "replace_description" &&
+    (!proposal.target_fields.includes("description") || !proposal.proposed_description_replacement)
+  ) {
+    violations.push("invalid_replacement_target");
+  }
+
+  if (proposal.action === "restore_previous_page" && !proposal.target_fields.includes("description")) {
+    violations.push("invalid_restore_target");
+  }
+
   if (proposal.action === "restore_original_page" && !proposal.target_fields.includes("description")) {
     violations.push("invalid_restore_target");
   }
 
-  if (proposal.action === "prepare_edit_proposal" && state) {
+  if ((proposal.action === "prepare_edit_proposal" || proposal.action === "replace_description") && state) {
     const reviewsBelongToListing =
       !state.relevantReviews ||
       !state.listingId ||
@@ -52,17 +63,18 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
       violations.push("review_listing_mismatch");
     }
 
+    const isCopyPolish = proposal.evidence_topics?.includes("Copy polish only") ?? false;
     const editableSignals = state.signals?.filter((signal) => signal.type !== "insufficient_evidence") ?? [];
     const strongestPrimaryEvidence = Math.max(
       ...editableSignals.map((signal) => signal.primaryEvidenceCount ?? 0),
       0
     );
 
-    if (editableSignals.length === 0) {
+    if (!isCopyPolish && editableSignals.length === 0) {
       violations.push("no_editable_signal");
     }
 
-    if (strongestPrimaryEvidence < 2) {
+    if (!isCopyPolish && strongestPrimaryEvidence < 2) {
       violations.push("insufficient_primary_evidence");
     }
 
@@ -74,12 +86,53 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
     ) {
       violations.push("no_effective_page_change");
     }
+
+    if (
+      currentDescription &&
+      proposal.proposed_description_replacement &&
+      normalizedText(currentDescription) === normalizedText(proposal.proposed_description_replacement)
+    ) {
+      violations.push("no_effective_page_change");
+    }
+
+    if (
+      currentDescription &&
+      proposal.proposed_description_replacement &&
+      !preservesProtectedFacts(currentDescription, proposal.proposed_description_replacement)
+    ) {
+      violations.push("protected_fact_removed_or_changed");
+    }
   }
 
   return {
     passed: violations.length === 0,
     violations
   };
+}
+
+function preservesProtectedFacts(before: string, after: string): boolean {
+  const normalizedAfter = normalizedText(after);
+  return protectedFacts(before).every((fact) => normalizedAfter.includes(normalizedText(fact)));
+}
+
+function protectedFacts(value: string): string[] {
+  const facts = new Set<string>();
+  const patterns = [
+    /\b\d+(?:\.\d+)?\/5\b/g,
+    /\b\d+\s+Google reviews\b/gi,
+    /\babout\s+\d+(?:\.\d+)?\s+km away\b/gi,
+    /\b[A-Z][A-Za-z0-9'&(). -]{2,80}\s+\(\d+(?:\.\d+)?\/5,\s+\d+\s+Google reviews[^)]*\)/g
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) {
+      if (match[0].trim()) {
+        facts.add(match[0].trim());
+      }
+    }
+  }
+
+  return [...facts];
 }
 
 function normalizedText(value: string): string {

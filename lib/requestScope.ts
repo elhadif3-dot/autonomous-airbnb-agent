@@ -10,13 +10,13 @@ const metadataPatterns = [/selected listing id:\s*\d+/gi];
 const allowedPatterns = [
   /\b(airbnb|listing|property|properties|rental|guest|review|description|amenit(?:y|ies)|nearby|place|places|lisbon|host|manager)\b/i,
   /\b(noise|quiet|wifi|wi-fi|internet|remote work|hill|steep|stairs|clean|comfort|location|attraction|restaurant|park|museum|viewpoint|issue|complaint|repair|maintenance)\b/i,
-  /\b(improve|update|edit|restore|revert|undo|reset|audit|supervisor|gap|evidence|fix|recommendation|recommend|income|revenue|quality)\b/i,
+  /\b(improve|update|edit|restore|revert|undo|reset|audit|supervisor|gap|evidence|fix|recommendation|recommend|income|revenue|quality|polish|rewrite|copy|wording|tone|persuasive)\b/i,
   /נכס|נכסים|דירה|דירות|אירבינבי|אירבי|ביקור(?:ת|ות)|אורח(?:ים)?|תיאור|ערוך|תערוך|שחזר|תחזיר|בטל|מיקום|מסעדה|פארק|אטרקציה|ליסבון/
 ];
 
 const strongDomainPatterns = [
   /\b(airbnb|listing|property|properties|rental|guest|review|description|amenit(?:y|ies)|host|manager)\b/i,
-  /\b(improve|update|edit|restore|revert|undo|reset|audit|supervisor|gap|evidence)\b/i,
+  /\b(improve|update|edit|restore|revert|undo|reset|audit|supervisor|gap|evidence|polish|rewrite|copy|wording)\b/i,
   /נכס|נכסים|דירה|דירות|אירבינבי|אירבי|ביקור(?:ת|ות)|אורח(?:ים)?|תיאור|ערוך|תערוך|שחזר|תחזיר|בטל|פער|ראיות/
 ];
 
@@ -43,7 +43,7 @@ export function classifyPromptScope(prompt: string): ScopeDecision {
       category: "capability_question",
       reason: "The manager asked about the agent capability boundaries.",
       safeResponse:
-        "I can help with the selected Lisbon Airbnb demo listing page: compare the page with guest reviews, use Google Places as supporting context, propose evidence-backed text edits, recommend property improvements from guest complaints, restore the simulated page to the original dataset text, and explain the audit trail. I cannot help with unrelated tasks, live Airbnb access, pricing, bookings, private messages, or editing guest reviews."
+        "I can help with the selected Lisbon Airbnb demo listing page: compare the page with guest reviews, use Google Places as supporting context, propose evidence-backed text edits, polish the current description wording without adding facts, recommend property improvements from guest complaints, restore the simulated page to the previous version or original dataset text, and explain the audit trail. I cannot help with unrelated tasks, live Airbnb access, pricing, bookings, private messages, or editing guest reviews."
     };
   }
 
@@ -73,7 +73,7 @@ function outOfScope(reason: string): ScopeDecision {
     category: "out_of_scope",
     reason,
     safeResponse:
-      "I don't know how to complete that request with my allowed tools. I can only work on the selected Lisbon Airbnb demo listing page: evidence-backed description edits, guest-expectation notes, nearby highlights, review-based property improvement recommendations, restore-to-original, and audit logging. No LLM, RAG, Google Places, or page edit was used for this out-of-scope request."
+      "I don't know how to complete that request with my allowed tools. I can only work on the selected Lisbon Airbnb demo listing page: evidence-backed description edits, copy polish that preserves existing facts, guest-expectation notes, nearby highlights, review-based property improvement recommendations, restore-to-previous, restore-to-original, and audit logging. No LLM, RAG, Google Places, or page edit was used for this out-of-scope request."
   };
 }
 

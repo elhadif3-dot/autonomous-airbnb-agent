@@ -24,7 +24,8 @@ The agent follows a ReAct-style loop:
 
 Actual page edits are executed only after `Supervisor / Control Agent` approval.
 Approved edits update the simulated listing page state and create an audit-log entry.
-Manager prompts can also ask the agent to restore the simulated page to the original dataset text; that restore path uses a different action trace and still requires Supervisor approval.
+Manager prompts can ask the agent to restore the simulated page to the previous in-session version. The separate `Reset Page` control restores the original dataset text and clears session history.
+Copy-polish prompts can ask the agent to rewrite only the current description wording. That action does not call Review RAG or Google Places; it preserves existing facts, place names, ratings, distances, and evidence-backed notes.
 Manager insight prompts can ask what fixable property or operations issues guests mention. That action returns recommendations only; it does not edit the listing page and does not require live Airbnb access.
 Evidence-only prompts can ask for more review examples about a suspected issue. That action searches the review index and returns a read-only evidence report without Google Places, Supervisor approval, or page edits.
 Nearby-place prompts may specify a distance such as `within about 1 km`; Google Places results are filtered to that radius and remain supporting context rather than primary guest-experience proof.

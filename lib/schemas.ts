@@ -8,10 +8,17 @@ export type AgentIntentPlan = {
 };
 
 export type EditProposal = {
-  action: "prepare_edit_proposal" | "restore_original_page" | "request_more_evidence" | "stop_without_action";
+  action:
+    | "prepare_edit_proposal"
+    | "replace_description"
+    | "restore_previous_page"
+    | "restore_original_page"
+    | "request_more_evidence"
+    | "stop_without_action";
   target_fields: string[];
   listing_id?: string;
   proposed_description_addition: string | null;
+  proposed_description_replacement?: string | null;
   evidence_topics?: string[];
   reason?: string;
 };
@@ -30,8 +37,10 @@ export const ALLOWED_TOOL_NAMES = [
   "get_google_places",
   "draft_evidence_report",
   "draft_listing_edit",
+  "draft_description_polish",
   "draft_manager_recommendations",
   "prepare_edit_proposal",
+  "restore_previous_page",
   "restore_original_page",
   "stop_without_action",
   "replan",
@@ -62,10 +71,18 @@ export const AgentNextActionSchema = z.object({
 });
 
 export const EditProposalSchema = z.object({
-  action: z.enum(["prepare_edit_proposal", "restore_original_page", "request_more_evidence", "stop_without_action"]),
+  action: z.enum([
+    "prepare_edit_proposal",
+    "replace_description",
+    "restore_previous_page",
+    "restore_original_page",
+    "request_more_evidence",
+    "stop_without_action"
+  ]),
   target_fields: z.array(EditableFieldSchema),
   listing_id: z.string().optional(),
   proposed_description_addition: z.string().nullable(),
+  proposed_description_replacement: z.string().nullable().optional(),
   evidence_topics: z.array(z.string()).optional(),
   reason: z.string().optional()
 });

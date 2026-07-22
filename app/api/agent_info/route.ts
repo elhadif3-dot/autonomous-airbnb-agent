@@ -161,9 +161,9 @@ export function GET() {
       },
       {
         prompt:
-          "Selected listing id: 1000509524156083637\nI did not like the simulated edit. Restore this listing page to the original dataset text and record what you restored.",
+          "Selected listing id: 45855270\nI did not like the simulated edit. Restore this listing page to the previous version text and record what you restored.",
         full_response:
-          "Approved and executed in the demo environment. The agent restored the simulated listing description from the original read-only dataset row and wrote an audit log.",
+          "Approved and executed in the demo environment. The agent restored the simulated listing description to the previous in-session version and wrote an audit log.",
         steps: [
           {
             module: "Autonomous Listing Editor Agent",
@@ -172,9 +172,45 @@ export function GET() {
               user_prompt: "Manager asked to undo the simulated page edit."
             },
             response: {
-              next_action: "restore_original_page",
+              next_action: "restore_previous_page",
               short_rationale: "The request is a controlled restore, so review retrieval and Google Places are not needed.",
               should_stop: false
+            }
+          }
+        ]
+      },
+      {
+        prompt:
+          "Selected listing id: 45855270\nFor Rossio Garden Hotel, do not search reviews and do not use Google Places. Polish only the current simulated description so it reads more natural, persuasive, and guest-facing. Preserve all existing facts, place names, ratings, Google review counts, distances, amenities, and evidence-backed notes.",
+        full_response:
+          "Approved and executed in the demo environment. The agent rewrote the current description wording without adding new facts, without Review RAG, and without Google Places.",
+        steps: [
+          {
+            module: "Autonomous Listing Editor Agent",
+            prompt: {
+              system_prompt: "Choose one next action from the current state.",
+              user_prompt: "Manager asked for copy polish only."
+            },
+            response: {
+              next_action: "draft_description_polish",
+              short_rationale: "The request is a wording polish, not a review-gap audit.",
+              should_stop: false
+            }
+          },
+          {
+            module: "Edit & Decision Tools",
+            prompt: {
+              system_prompt: "Draft a copy-polish replacement for the current simulated description.",
+              user_prompt: "Current page description only."
+            },
+            response: {
+              proposed_action: {
+                action: "replace_description",
+                target_fields: ["description"],
+                evidence_topics: ["Copy polish only"]
+              },
+              retrieval_used: false,
+              google_places_used: false
             }
           }
         ]

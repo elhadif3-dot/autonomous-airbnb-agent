@@ -56,6 +56,7 @@ type AgentState = {
   listingId: string;
   sessionId: string;
   currentDescriptionOverride?: string;
+  previousDescriptionOverride?: string;
   intent: string[];
   selectedActions: string[];
   observations: string[];
@@ -115,7 +116,9 @@ const topicKeywords: Record<string, string[]> = {
   space: ["small", "tiny", "compact", "cramped"],
   property_fixes: ["fix", "repair", "maintenance", "issue", "issues", "problem", "complaint", "bothering", "improve the property", "quality", "income", "revenue"],
   nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
-  restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"]
+  restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"],
+  restore_previous: ["previous version", "previous text", "last version", "last edit", "one version back"],
+  copy_polish: ["polish", "rewrite", "make natural", "more natural", "stronger copy", "marketing copy", "persuasive", "wording", "tone", "more attractive", "sell better"]
 };
 
 const MAX_ACTIONS = 16;
@@ -127,6 +130,7 @@ export async function executeListingAgent(prompt: string): Promise<ExecuteRespon
 
 type ExecuteOptions = {
   currentPageDescription?: string;
+  previousPageDescription?: string;
   portfolioPageDescriptions?: Record<string, string>;
   sessionId?: string;
 };
@@ -168,7 +172,7 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
     }
 
     if (isPortfolioRequest(prompt)) {
-      return executePortfolioAgent(
+      return await executePortfolioAgent(
         prompt,
         steps,
         options.portfolioPageDescriptions ?? {},
@@ -189,6 +193,7 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
       listingId,
       sessionId: options.sessionId ?? "api-default-session",
       currentDescriptionOverride: options.currentPageDescription,
+      previousDescriptionOverride: options.previousPageDescription,
       intent: inferIntent(prompt),
       selectedActions: [],
       observations: [],
@@ -196,7 +201,7 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
       requireMoreEvidence: false
     };
 
-    return runSingleListingAgent(state, steps);
+    return await runSingleListingAgent(state, steps);
   } catch (error) {
     return {
       status: "error",
@@ -389,6 +394,15 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
+  if (state.claims && isCopyPolishRequest(state) && !state.proposal && proposed.next_action !== "draft_description_polish") {
+    return action(
+      "draft_description_polish",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "The manager asked for copy polish only, so the agent should rewrite the current description without review retrieval or Google Places.",
+      "A copy-polish proposal is missing."
+    );
+  }
+
   if (state.listing && needsEvidenceReport(state) && !state.reviews && proposed.next_action !== "search_reviews") {
     return action(
       "search_reviews",
@@ -398,7 +412,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
-  if (state.claims && !state.reviews && proposed.next_action !== "search_reviews") {
+  if (state.claims && !isCopyPolishRequest(state) && !state.reviews && proposed.next_action !== "search_reviews") {
     return action(
       "search_reviews",
       reviewSearchToolInput(state, { runtime_override_from: proposed.next_action }),
@@ -470,12 +484,31 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
-  if (state.listing && isRestoreRequest(state) && !state.proposal && proposed.next_action !== "restore_original_page") {
+  if (
+    state.listing &&
+    isRestoreRequest(state) &&
+    !state.proposal &&
+    proposed.next_action !== "restore_original_page" &&
+    proposed.next_action !== "restore_previous_page"
+  ) {
+    const restoreAction = isRestorePreviousRequest(state) ? "restore_previous_page" : "restore_original_page";
     return action(
-      "restore_original_page",
+      restoreAction,
       { listing_id: state.listingId, runtime_override_from: proposed.next_action },
-      "The manager asked to undo the simulated edit, so the legal next action is restoring from the original dataset text.",
+      isRestorePreviousRequest(state)
+        ? "The manager asked to undo the latest simulated edit, so the legal next action is restoring the previous in-session version."
+        : "The manager asked to restore the simulated page to the original dataset text.",
       "A restore proposal is needed."
+    );
+  }
+
+  if (state.proposal?.action === "stop_without_action" && !state.signals && proposed.next_action !== "stop_without_action") {
+    return action(
+      "stop_without_action",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "The tool determined that no useful page change is available, so Supervisor approval is not needed.",
+      "Stop without page update.",
+      true
     );
   }
 
@@ -511,7 +544,15 @@ function chooseNextAction(state: AgentState): AgentNextAction {
 
   if (isRestoreRequest(state)) {
     if (!state.proposal) {
-      return action("restore_original_page", { listing_id: state.listingId }, "The manager asked to undo the simulated edit, so the agent can restore the page from the read-only dataset source.", "A restore proposal is needed.");
+      const restoreAction = isRestorePreviousRequest(state) ? "restore_previous_page" : "restore_original_page";
+      return action(
+        restoreAction,
+        { listing_id: state.listingId },
+        isRestorePreviousRequest(state)
+          ? "The manager asked to undo the latest simulated edit, so the agent can restore the previous in-session page version."
+          : "The manager asked to restore the simulated page to the original read-only dataset source.",
+        "A restore proposal is needed."
+      );
     }
 
     if (!state.supervisor) {
@@ -519,7 +560,7 @@ function chooseNextAction(state: AgentState): AgentNextAction {
     }
 
     if (state.supervisor.decision === "Approve" && !state.auditLog) {
-      return action("prepare_edit_proposal", { listing_id: state.listingId, execute: true }, "Supervisor approved restoring the simulated page to the original dataset text.", "Approved restore still needs execution.");
+      return action("prepare_edit_proposal", { listing_id: state.listingId, execute: true }, "Supervisor approved the controlled restore action.", "Approved restore still needs execution.");
     }
 
     return action("stop_without_action", {}, "The restore request reached a terminal state.", "Stop execution.", true);
@@ -549,6 +590,31 @@ function chooseNextAction(state: AgentState): AgentNextAction {
 
   if (!state.claims) {
     return action("extract_claims", { listing_id: state.listingId }, "The agent needs current page claims to compare against observations.", "Current listing claims are missing.");
+  }
+
+  if (isCopyPolishRequest(state)) {
+    if (!state.proposal) {
+      return action(
+        "draft_description_polish",
+        { listing_id: state.listingId },
+        "The manager asked for stronger listing copy without new evidence search, so the agent should polish only the current description text.",
+        "A copy-polish replacement proposal is missing."
+      );
+    }
+
+    if (state.proposal.action === "stop_without_action") {
+      return action("stop_without_action", {}, "The copy-polish tool found no useful wording change.", "Stop execution.", true);
+    }
+
+    if (!state.supervisor) {
+      return action("submit_to_supervisor", { listing_id: state.listingId }, "Copy-polish replacements still require Supervisor / Control Agent approval.", "Supervisor decision is missing.");
+    }
+
+    if (state.supervisor.decision === "Approve" && !state.auditLog) {
+      return action("prepare_edit_proposal", { listing_id: state.listingId, execute: true }, "Supervisor approved the copy-polish replacement.", "Approved replacement still needs execution.");
+    }
+
+    return action("stop_without_action", {}, "The copy-polish request reached a terminal state.", "Stop execution.", true);
   }
 
   if (!state.reviews) {
@@ -741,18 +807,22 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       }
 
       if (isRestoreRequest(state)) {
+        const restoreAction = isRestorePreviousRequest(state) ? "restore_previous_page" : "restore_original_page";
         const proposal = EditProposalSchema.parse({
-          action: "restore_original_page",
+          action: restoreAction,
           target_fields: ["description"],
           listing_id: state.listing.id,
           proposed_description_addition: null,
-          evidence_topics: ["Restore original dataset state"],
-          reason: "The manager rejected the simulated edit and asked to return the listing page to its original dataset text."
+          proposed_description_replacement: null,
+          evidence_topics: [isRestorePreviousRequest(state) ? "Restore previous simulated version" : "Restore original dataset state"],
+          reason: isRestorePreviousRequest(state)
+            ? "The manager rejected the latest simulated edit and asked to return the listing page to the previous version text."
+            : "The manager rejected the simulated edit and asked to return the listing page to its original dataset text."
         });
         state.proposal = proposal;
         steps.push(step("Edit & Decision Tools", "Draft a controlled restore action for the simulated listing page.", JSON.stringify(actionRequest.tool_input), {
           proposed_action: proposal,
-          restore_source: "Original Airbnb listing row from the prepared dataset",
+          restore_source: isRestorePreviousRequest(state) ? "Previous in-session simulated page version" : "Original Airbnb listing row from the prepared dataset",
           editable_scope: "Simulated page description only"
         }));
         return true;
@@ -774,6 +844,23 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       steps.push(step("Edit & Decision Tools", "Draft a narrow page edit, ask for more evidence, or stop.", JSON.stringify(actionRequest.tool_input), {
         proposed_action: proposal,
         evidence_validation: validateEvidence(state)
+      }));
+      return true;
+    }
+
+    case "draft_description_polish": {
+      if (!state.listing || !state.page) {
+        throw new Error("Cannot polish description before listing data is loaded.");
+      }
+
+      const proposal = EditProposalSchema.parse(draftDescriptionPolish(state.listing, state.page.currentDescription));
+      state.proposal = proposal;
+      steps.push(step("Edit & Decision Tools", "Draft a copy-polish replacement for the current simulated description.", JSON.stringify(actionRequest.tool_input), {
+        proposed_action: proposal,
+        edit_mode: "copy_polish_only",
+        retrieval_used: false,
+        google_places_used: false,
+        editable_scope: "Description wording only; existing facts, names, ratings, distances, and review counts must be preserved."
       }));
       return true;
     }
@@ -817,6 +904,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         target_fields: ["description"],
         listing_id: state.listing.id,
         proposed_description_addition: null,
+        proposed_description_replacement: null,
         evidence_topics: ["Restore original dataset state"],
         reason: "The manager rejected the simulated edit and asked to return the listing page to its original dataset text."
       });
@@ -829,8 +917,34 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       return true;
     }
 
+    case "restore_previous_page": {
+      if (!state.listing) {
+        throw new Error("Cannot restore the page before listing data is loaded.");
+      }
+
+      const proposal = EditProposalSchema.parse({
+        action: "restore_previous_page",
+        target_fields: ["description"],
+        listing_id: state.listing.id,
+        proposed_description_addition: null,
+        proposed_description_replacement: null,
+        evidence_topics: ["Restore previous simulated version"],
+        reason: state.previousDescriptionOverride
+          ? "The manager rejected the latest simulated edit and asked to return the listing page to the previous version text."
+          : "No previous simulated page version is available in the current demo session."
+      });
+      state.proposal = proposal;
+      steps.push(step("Edit & Decision Tools", "Restore the simulated listing page to the previous in-session version.", JSON.stringify(actionRequest.tool_input), {
+        proposed_action: proposal,
+        restore_source: "Previous in-session simulated page version",
+        previous_version_available: Boolean(state.previousDescriptionOverride),
+        editable_scope: "Simulated page description only"
+      }));
+      return true;
+    }
+
     case "submit_to_supervisor": {
-      if (!state.proposal || (!state.signals && state.proposal.action !== "restore_original_page")) {
+      if (!state.proposal || (!state.signals && !proposalCanSkipReviewSignals(state.proposal))) {
         throw new Error("Cannot submit to Supervisor before an edit proposal exists.");
       }
 
@@ -886,7 +1000,12 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot execute approved proposal before listing, proposal, and Supervisor decision exist.");
       }
 
-      state.pageUpdate = applySimulatedPageUpdate(state.listing, state.proposal, state.supervisor.decision);
+      state.pageUpdate = applySimulatedPageUpdate(
+        state.listing,
+        state.proposal,
+        state.supervisor.decision,
+        state.previousDescriptionOverride
+      );
       if (state.proposal.action === "restore_original_page") {
         resetReviewCoverageForListing(state.sessionId, state.listing.id);
       }
@@ -1848,13 +1967,109 @@ function draftEdit(
     return signal.recommendation;
   });
 
+  const proposedAddition = additions.join(" ");
+  const revisedDescription = reviseDescriptionForEvidenceBackedGaps(currentDescription, selectedSignals, proposedAddition);
+  if (revisedDescription && normalizeTextForCoverage(revisedDescription) !== normalizeTextForCoverage(currentDescription)) {
+    return {
+      action: "replace_description",
+      target_fields: ["description"],
+      listing_id: listing.id,
+      proposed_description_addition: null,
+      proposed_description_replacement: revisedDescription,
+      evidence_topics: selectedSignals.map((signal) => signal.topic),
+      reason: "The agent found an evidence-backed wording gap, so it replaced the current simulated description with a safer, more natural version instead of only appending text."
+    };
+  }
+
   return {
     action: "prepare_edit_proposal",
     target_fields: ["description"],
     listing_id: listing.id,
-    proposed_description_addition: additions.join(" "),
+    proposed_description_addition: proposedAddition,
+    proposed_description_replacement: null,
     evidence_topics: selectedSignals.map((signal) => signal.topic)
   };
+}
+
+function draftDescriptionPolish(listing: Listing, currentDescription: string): EditProposal {
+  const polished = polishDescriptionCopy(currentDescription);
+
+  if (normalizeTextForCoverage(polished) === normalizeTextForCoverage(currentDescription)) {
+    return stopProposal(
+      listing.id,
+      "The current simulated description is already clean enough for a copy-only polish without changing facts."
+    );
+  }
+
+  return {
+    action: "replace_description",
+    target_fields: ["description"],
+    listing_id: listing.id,
+    proposed_description_addition: null,
+    proposed_description_replacement: polished,
+    evidence_topics: ["Copy polish only"],
+    reason:
+      "The manager asked for wording polish only. The agent rewrote the current description to read more naturally while preserving existing facts, names, ratings, distances, and review counts."
+  };
+}
+
+function reviseDescriptionForEvidenceBackedGaps(
+  currentDescription: string,
+  signals: Signal[],
+  proposedAddition: string
+): string | null {
+  if (!signals.some((signal) => signal.type === "accuracy_gap")) {
+    return null;
+  }
+
+  let revised = currentDescription;
+  if (signals.some((signal) => signal.topic === "Noise expectations")) {
+    revised = revised
+      .replace(/\bvery calm area\b/gi, "central Lisbon area")
+      .replace(/\bcalm area\b/gi, "central Lisbon area")
+      .replace(/\bquiet area\b/gi, "central Lisbon area")
+      .replace(/\bvery quiet\b/gi, "central")
+      .replace(/\bquiet\b/gi, "central");
+  }
+
+  revised = polishDescriptionCopy(revised);
+  revised = appendTextIfMissing(revised, proposedAddition);
+  return revised;
+}
+
+function polishDescriptionCopy(description: string): string {
+  return description
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/\betc\.\.\.?/gi, "and more.")
+    .replace(/\ba couple of meters\b/gi, "just a few meters")
+    .replace(/\bby foot\b/gi, "on foot")
+    .replace(/\ball the major city charms\b/gi, "many of Lisbon's main highlights")
+    .replace(/\ball the most known neighborhoods\b/gi, "the best-known neighborhoods")
+    .replace(/\bneighborhoods as\b/gi, "neighborhoods such as")
+    .replace(/\bBy just walking 2 minutes you can reach\b/gi, "Within a 2-minute walk, you can reach")
+    .replace(/\bright down the corner\b/gi, "just around the corner")
+    .replace(/\bYou will find yourself right in the heart\b/gi, "You are right in the heart")
+    .replace(/\bYou will be able to experience\b/gi, "You can experience")
+    .replace(/\bwill be able to experience\b/gi, "can experience")
+    .replace(/\band You\b/g, "and you")
+    .replace(/\.\s+and more\.\s+/gi, ". ")
+    .replace(/\band more\s+All\b/g, "and more. All")
+    .replace(/\s+([,.])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function appendTextIfMissing(description: string, addition: string): string {
+  if (!addition.trim()) {
+    return description;
+  }
+
+  if (normalizeTextForCoverage(description).includes(normalizeTextForCoverage(addition))) {
+    return description;
+  }
+
+  return `${description.trim()}\n\n${addition.trim()}`;
 }
 
 function coverageProgressSentence(stats?: ReviewSearchStats): string {
@@ -2267,10 +2482,24 @@ function supervise(proposal: EditProposal, signals: Signal[], guardrailsPassed: 
     };
   }
 
+  if (proposal.action === "restore_previous_page") {
+    return {
+      decision: "Approve",
+      rationale: "The action restores the simulated listing page to the previous in-session text and does not modify reviews, Places data, pricing, or live Airbnb."
+    };
+  }
+
   if (proposal.action === "restore_original_page") {
     return {
       decision: "Approve",
       rationale: "The action restores the simulated listing page to the original read-only dataset text and does not modify reviews, Places data, pricing, or live Airbnb."
+    };
+  }
+
+  if (proposal.action === "replace_description" && proposal.evidence_topics?.includes("Copy polish only")) {
+    return {
+      decision: "Approve",
+      rationale: "The replacement is a copy-polish action that preserves existing facts and updates only the simulated description wording."
     };
   }
 
@@ -2305,6 +2534,14 @@ function validateEvidence(state: AgentState) {
   };
 }
 
+function proposalCanSkipReviewSignals(proposal: EditProposal): boolean {
+  return (
+    proposal.action === "restore_previous_page" ||
+    proposal.action === "restore_original_page" ||
+    (proposal.action === "replace_description" && Boolean(proposal.evidence_topics?.includes("Copy polish only")))
+  );
+}
+
 function finalResponse(state: AgentState): string {
   if (!state.listing) {
     return state.stopReason ?? "No listing was selected.";
@@ -2319,6 +2556,16 @@ function finalResponse(state: AgentState): string {
   }
 
   if (state.supervisor?.decision === "Approve" && state.pageUpdate?.status === "executed") {
+    if (state.proposal?.action === "restore_previous_page") {
+      return [
+        `Approved and executed in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
+        "",
+        "The simulated listing description was restored to the previous version text.",
+        "",
+        "No source CSV, guest review, Google Places row, or live Airbnb account was changed. The restore action was recorded in the audit log."
+      ].join("\n");
+    }
+
     if (state.proposal?.action === "restore_original_page") {
       return [
         `Approved and executed in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
@@ -2326,6 +2573,22 @@ function finalResponse(state: AgentState): string {
         "The simulated listing description was restored to the original dataset text.",
         "",
         "No source CSV, guest review, Google Places row, or live Airbnb account was changed. The restore action was recorded in the audit log."
+      ].join("\n");
+    }
+
+    if (state.proposal?.action === "replace_description") {
+      return [
+        `Approved and executed in the demo environment for listing ${state.listing.id}: ${state.listing.name}.`,
+        "",
+        state.proposal.evidence_topics?.includes("Copy polish only")
+          ? "What changed: the agent rewrote the current description wording to make it more natural and persuasive, without adding new facts."
+          : "What changed: the agent replaced the current description with a safer evidence-backed version instead of only appending text.",
+        "",
+        `Why this improves the page: ${pageEditBenefit(state)}`,
+        "",
+        `Evidence used: ${pageEditEvidenceSummary(state)}`,
+        "",
+        "No live Airbnb account was accessed. The update was applied only to the simulated listing page and recorded in the audit log."
       ].join("\n");
     }
 
@@ -2376,6 +2639,10 @@ function finalResponse(state: AgentState): string {
 function pageEditBenefit(state: AgentState): string {
   const topics = state.proposal?.evidence_topics ?? [];
 
+  if (topics.includes("Copy polish only")) {
+    return "it makes the existing page copy easier to read and more persuasive while preserving the listing's current facts.";
+  }
+
   if (topics.some((topic) => /stairs|hills|temperature|noise|space/i.test(topic))) {
     return "it sets clearer guest expectations before booking, which reduces surprise during the stay and can prevent avoidable negative reviews.";
   }
@@ -2389,6 +2656,11 @@ function pageEditBenefit(state: AgentState): string {
 
 function pageEditEvidenceSummary(state: AgentState): string {
   const topics = state.proposal?.evidence_topics ?? [];
+
+  if (topics.includes("Copy polish only")) {
+    return "No new evidence retrieval was needed; the tool preserved the current simulated page facts and only improved wording.";
+  }
+
   const strongestSignals = (state.signals ?? [])
     .filter((signal) => topics.includes(signal.topic))
     .map((signal) => `${signal.topic} (${signal.primaryEvidenceCount} guest-review signals)`);
@@ -2447,16 +2719,29 @@ function evidenceReportResponse(report: EvidenceReport): string {
 }
 
 function isRestoreRequest(state: AgentState): boolean {
-  return state.intent.includes("restore_original");
+  return isRestorePreviousRequest(state) || isRestoreOriginalRequest(state);
+}
+
+function isRestorePreviousRequest(state: AgentState): boolean {
+  return state.intent.includes("restore_previous") || /\b(previous version|previous text|last version|last edit|one version back|undo last)\b/i.test(state.prompt);
+}
+
+function isRestoreOriginalRequest(state: AgentState): boolean {
+  return /\b(original dataset|original text|dataset text|back to original|reset to original|source text)\b/i.test(state.prompt);
+}
+
+function isCopyPolishRequest(state: AgentState): boolean {
+  return state.intent.includes("copy_polish") || /\b(polish|rewrite|make natural|more natural|stronger copy|marketing copy|persuasive|wording|tone|more attractive|sell better)\b/i.test(state.prompt);
 }
 
 function isPortfolioRequest(prompt: string): boolean {
-  return /\b(all|every|portfolio|managed listings|managed properties|properties I manage|listings I manage)\b/i.test(prompt) ||
+  return /\b(portfolio|managed listings|managed properties|properties I manage|listings I manage)\b/i.test(prompt) ||
+    /\b(?:all|every)\s+(?:of\s+my\s+|my\s+|managed\s+)?(?:airbnb\s+)?(?:listings|properties|rentals)\b/i.test(prompt) ||
     /כל הנכסים|כל הדירות|כל הרשימות|בבעלותי|שבבעלותי/.test(prompt);
 }
 
 function portfolioPromptForListing(prompt: string, listingName: string): string {
-  if (inferIntent(prompt).includes("restore_original")) {
+  if (/\b(original dataset|original text|dataset text|back to original|reset to original|source text)\b/i.test(prompt)) {
     return `Restore "${listingName}" to the original dataset text if the simulated page was edited.`;
   }
 
@@ -2507,6 +2792,7 @@ function summarizeState(state: AgentState): string {
     selected_actions_so_far: state.selectedActions,
     deterministic_planner: Boolean(state.deterministicPlanner),
     has_listing: Boolean(state.listing),
+    has_previous_page_version: Boolean(state.previousDescriptionOverride),
     has_claims: Boolean(state.claims),
     has_review_observations: Boolean(state.relevantReviews),
     review_search_stats: state.reviewSearchStats
