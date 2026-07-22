@@ -488,8 +488,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     state.listing &&
     isRestoreRequest(state) &&
     !state.proposal &&
-    proposed.next_action !== "restore_original_page" &&
-    proposed.next_action !== "restore_previous_page"
+    proposed.next_action !== (isRestorePreviousRequest(state) ? "restore_previous_page" : "restore_original_page")
   ) {
     const restoreAction = isRestorePreviousRequest(state) ? "restore_previous_page" : "restore_original_page";
     return action(
