@@ -518,9 +518,24 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       }
 
       state.listing = listing;
+      const requestedName = extractRequestedListingName(state.prompt);
+      if (requestedName && !namesCompatible(requestedName, listing.name)) {
+        state.stopReason = `The selected listing id belongs to "${listing.name}", but the manager prompt mentions "${requestedName}". The agent stopped instead of editing a possibly wrong listing.`;
+        steps.push(step("Listing Tools", "Validate that the selected listing matches the manager's named property.", JSON.stringify(actionRequest.tool_input), {
+          found: true,
+          name_match: false,
+          listing_id: listing.id,
+          selected_listing_name: listing.name,
+          requested_listing_name: requestedName,
+          safety_note: "The agent stopped before review retrieval, Google Places, Supervisor approval, or page update."
+        }));
+        return false;
+      }
+
       state.page = getSimulatedListingPage(listing, state.currentDescriptionOverride);
       steps.push(step("Listing Tools", "Retrieve the selected listing and simulated page state.", JSON.stringify(actionRequest.tool_input), {
         found: true,
+        name_match: true,
         listing_id: listing.id,
         listing_name: listing.name,
         current_page_description_excerpt: excerpt(state.page.currentDescription)
@@ -806,6 +821,39 @@ function extractListingId(prompt: string): string | null {
 
   const fallback = prompt.match(/\b\d{5,}\b/);
   return fallback?.[0] ?? null;
+}
+
+function extractRequestedListingName(prompt: string): string | null {
+  const match = prompt.match(/\b(?:handle|review|restore|for|on)\s+["']([^"']{4,140})["']/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function namesCompatible(requested: string, selected: string): boolean {
+  const requestedNormalized = normalizeName(requested);
+  const selectedNormalized = normalizeName(selected);
+
+  if (!requestedNormalized || !selectedNormalized) {
+    return true;
+  }
+
+  if (selectedNormalized.includes(requestedNormalized) || requestedNormalized.includes(selectedNormalized)) {
+    return true;
+  }
+
+  const requestedTokens = new Set(requestedNormalized.split(" ").filter((token) => token.length > 2));
+  const selectedTokens = new Set(selectedNormalized.split(" ").filter((token) => token.length > 2));
+  const overlap = [...requestedTokens].filter((token) => selectedTokens.has(token)).length;
+  const denominator = Math.max(requestedTokens.size, selectedTokens.size, 1);
+  return overlap / denominator >= 0.55;
+}
+
+function normalizeName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function inferIntent(prompt: string): string[] {

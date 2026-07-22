@@ -883,6 +883,15 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
   }
 
   if (typeof response.found === "boolean") {
+    if (response.found && response.name_match === false) {
+      return {
+        title: "Listing name mismatch blocked",
+        status: "blocked",
+        rationale: stringValue(response.safety_note),
+        observation: `Selected listing: ${stringValue(response.selected_listing_name) ?? "unknown"}. Prompt mentioned: ${stringValue(response.requested_listing_name) ?? "unknown"}.`
+      };
+    }
+
     return {
       title: response.found ? "Loaded selected listing" : "Listing not found",
       status: response.found ? "found" : "not found",
