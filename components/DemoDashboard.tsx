@@ -124,15 +124,6 @@ export function DemoDashboard({ listings }: Props) {
         }}
       />
 
-      <AgentFeatureBar
-        prompt={prompt}
-        setPrompt={setPrompt}
-        runAgent={runAgent}
-        resetPage={resetPage}
-        isRunning={isRunning}
-        result={result}
-      />
-
       <main className="listingShell">
         <section className="listingTitleBlock">
           <div>
@@ -219,6 +210,14 @@ export function DemoDashboard({ listings }: Props) {
           </article>
 
           <aside className="sideRail">
+            <AgentFeatureBar
+              prompt={prompt}
+              setPrompt={setPrompt}
+              runAgent={runAgent}
+              resetPage={resetPage}
+              isRunning={isRunning}
+              result={result}
+            />
             <ReservationCard listing={selectedListing} />
           </aside>
         </div>

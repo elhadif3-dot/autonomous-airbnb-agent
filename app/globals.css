@@ -130,9 +130,9 @@ button {
 }
 
 .agentDock {
-  width: min(1120px, calc(100% - 48px));
-  margin: 22px auto 8px;
-  padding: 18px;
+  width: 100%;
+  margin: 0;
+  padding: 20px;
   border: 1px solid #ffd6de;
   border-radius: 16px;
   background: linear-gradient(180deg, #fff8fa, #ffffff);
@@ -143,40 +143,41 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 18px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .agentDockIntro h2 {
   margin: 4px 0 0;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1.18;
   letter-spacing: 0;
 }
 
 .agentDockIntro p {
-  max-width: 760px;
   margin: 8px 0 0;
   color: var(--muted);
   line-height: 1.45;
+  font-size: 14px;
 }
 
 .promptExamples {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .promptExamples button {
-  min-height: 34px;
+  min-height: 38px;
   border: 1px solid #ffd6de;
-  border-radius: 999px;
-  padding: 0 12px;
+  border-radius: 10px;
+  padding: 8px 10px;
   background: white;
   color: #8f1233;
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.25;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -314,8 +315,8 @@ button {
 
 .contentGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 370px;
-  gap: 72px;
+  grid-template-columns: minmax(0, 1fr) 410px;
+  gap: 56px;
   align-items: start;
   margin-top: 42px;
 }
@@ -624,19 +625,25 @@ button {
 
 .promptBox {
   width: 100%;
-  min-height: 82px;
+  min-height: 180px;
   resize: vertical;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  border: 1px solid #cfcfcf;
+  border-radius: 12px;
+  padding: 14px;
   color: var(--ink);
   background: #fff;
-  line-height: 1.45;
+  line-height: 1.5;
+  font-size: 15px;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.03);
+}
+
+.promptBox:focus {
+  outline: 2px solid rgba(255, 56, 92, 0.28);
+  border-color: var(--air);
 }
 
 .scopeBox {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin: 12px 0;
   padding: 12px;
@@ -662,7 +669,7 @@ button {
 
 .agentActions {
   display: grid;
-  grid-template-columns: minmax(180px, 260px) auto;
+  grid-template-columns: 1fr;
   gap: 10px;
   align-items: center;
 }
@@ -697,11 +704,15 @@ button {
 .emptyState {
   color: var(--muted);
   line-height: 1.45;
+  font-size: 14px;
 }
 
 .result {
   display: grid;
   gap: 0;
+  max-height: 620px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .responseBox h4,
@@ -750,7 +761,7 @@ button {
 }
 
 .diffGrid > div {
-  max-height: 190px;
+  max-height: 160px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -773,7 +784,7 @@ button {
 }
 
 .stepBox pre {
-  max-height: 220px;
+  max-height: 190px;
   overflow: auto;
   margin: 10px 0 0;
   white-space: pre-wrap;
@@ -804,6 +815,10 @@ button {
 
   .sideRail {
     position: static;
+  }
+
+  .agentDock {
+    margin-bottom: 0;
   }
 
   .agentDockIntro {
