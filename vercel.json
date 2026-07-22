@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "app/api/execute/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

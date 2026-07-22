@@ -526,7 +526,11 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot search reviews before listing data is loaded.");
       }
 
-      const reviews = await getReviewsForListing(state.listing.id);
+      const reviews = await getReviewsForListing(
+        state.listing.id,
+        reviewQueryForIntent(state.listing, state.intent),
+        Math.max(reviewRetrievalLimit(state), state.requireMoreEvidence ? 24 : 12)
+      );
       const relevantReviews = searchRelevantReviews(reviews, state.intent, reviewRetrievalLimit(state));
       state.reviews = reviews;
       state.relevantReviews = relevantReviews;
@@ -806,6 +810,19 @@ function reviewRetrievalLimit(state: AgentState): number {
   }
 
   return 8;
+}
+
+function reviewQueryForIntent(listing: Listing, intent: string[]): string {
+  const topics = intent
+    .filter((topic) => topic !== "review_alignment" && topic !== "restore_original")
+    .slice(0, 8)
+    .join(", ");
+
+  return [
+    `Lisbon Airbnb guest reviews for listing ${listing.id}: ${listing.name}.`,
+    topics ? `Find review evidence about ${topics}.` : "Find repeated guest experience signals.",
+    "Prefer concrete guest experience details over generic praise."
+  ].join(" ");
 }
 
 function needsGooglePlaces(state: AgentState): boolean {

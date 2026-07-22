@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseCsv, rowsToObjects } from "@/lib/csv";
+import { queryPineconeReviews } from "@/lib/pineconeReviews";
 import type { Listing, Place, Review } from "@/lib/types";
 
 let listingsCache: Listing[] | null = null;
@@ -89,7 +90,17 @@ export async function getListingById(id: string): Promise<Listing | null> {
   return listings.find((listing) => listing.id === id) ?? null;
 }
 
-export async function getReviewsForListing(listingId: string): Promise<Review[]> {
+export async function getReviewsForListing(listingId: string, query?: string, limit = 80): Promise<Review[]> {
+  const pineconeReviews = await queryPineconeReviews({
+    listingId,
+    query: query || `Guest reviews for Lisbon Airbnb listing ${listingId}`,
+    topK: Math.min(limit, 80)
+  });
+
+  if (pineconeReviews?.length) {
+    return pineconeReviews;
+  }
+
   if (!reviewsCache) {
     const csv = await readFile(path.join(root, "lisbon_reviews_final_with_pois.csv"), "utf8");
     const objects = rowsToObjects(parseCsv(csv));
@@ -103,7 +114,7 @@ export async function getReviewsForListing(listingId: string): Promise<Review[]>
       }));
   }
 
-  return reviewsCache.filter((review) => review.listingId === listingId).slice(0, 80);
+  return reviewsCache.filter((review) => review.listingId === listingId).slice(0, limit);
 }
 
 export async function getPlacesNearListing(listing: Listing, limit = 8): Promise<Place[]> {

@@ -61,6 +61,68 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Pinecone Setup
+
+Pinecone is used as the vector DB for Airbnb review evidence when credentials are configured.
+Without Pinecone credentials, the app falls back to the prepared CSV data so the demo remains usable.
+
+```bash
+npm run setup-pinecone
+npm run setup-pinecone -- --create
+npm run ingest-pinecone -- --limit 200 --confirm-paid
+npm run pinecone-stats
+```
+
+Use a small `--limit` first. Remove the limit only after confirming the index, retrieval quality, and budget.
+The ingestion script calls the LLMod embedding model and therefore requires `--confirm-paid`.
+
+Required Pinecone/embedding environment variables:
+
+```bash
+LLMOD_API_KEY=...
+LLMOD_BASE_URL=...
+LLMOD_EMBEDDING_MODEL=MB5R2CF-azure/text-embedding-3-small
+PINECONE_API_KEY=...
+PINECONE_REVIEW_INDEX=airbnb-reviews
+PINECONE_REVIEW_NAMESPACE=airbnb-reviews
+```
+
+## Vercel Deployment
+
+The project is Vercel-ready. Add these environment variables in Vercel before production deployment:
+
+```bash
+LLMOD_API_KEY
+LLMOD_BASE_URL
+LLMOD_TEXT_MODEL
+LLMOD_EMBEDDING_MODEL
+LLM_MODE
+LLM_LIVE_MODULES
+LLM_MAX_TOKENS
+PINECONE_API_KEY
+PINECONE_REVIEW_INDEX
+PINECONE_REVIEW_NAMESPACE
+TEAM_STUDENT_1_NAME
+TEAM_STUDENT_1_EMAIL
+TEAM_STUDENT_2_NAME
+TEAM_STUDENT_2_EMAIL
+TEAM_STUDENT_3_NAME
+TEAM_STUDENT_3_EMAIL
+```
+
+Deploy with GitHub import in Vercel, or from the CLI after login:
+
+```bash
+npx vercel
+npx vercel --prod
+```
+
+After deployment, test the required endpoints with the Python smoke tester:
+
+```bash
+python python/api_smoke_test.py https://YOUR-VERCEL-URL
+```
+
 ## Token Usage
 
 The project is currently LLM-ready but runs in `LLM_MODE=mock`.

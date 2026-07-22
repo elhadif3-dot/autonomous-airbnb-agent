@@ -6,9 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "setup-pinecone": "node scripts/setup-pinecone.mjs",
+    "ingest-pinecone": "node scripts/ingest-pinecone.mjs",
+    "pinecone-stats": "node scripts/pinecone-stats.mjs"
   },
   "dependencies": {
+    "@pinecone-database/pinecone": "^8.1.0",
     "lucide-react": "^1.25.0",
     "next": "^16.2.11",
     "postcss": "^8.5.10",
