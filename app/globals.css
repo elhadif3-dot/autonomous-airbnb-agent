@@ -1,17 +1,16 @@
 :root {
-  --background: #f6f4ef;
+  --background: #ffffff;
   --surface: #ffffff;
-  --surface-soft: #f1f7f6;
-  --ink: #172127;
-  --muted: #65737c;
-  --line: #d9e1df;
-  --teal: #075c61;
-  --teal-strong: #02494d;
-  --coral: #d8583d;
-  --gold: #c99837;
-  --green: #23715c;
-  --red: #9f3631;
-  --shadow: 0 18px 50px rgba(19, 35, 38, 0.11);
+  --ink: #222222;
+  --muted: #717171;
+  --line: #dddddd;
+  --soft: #f7f7f7;
+  --air: #ff385c;
+  --air-dark: #d70466;
+  --green: #16805b;
+  --red: #b02a37;
+  --gold: #b88400;
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 * {
@@ -24,9 +23,7 @@ body {
   min-height: 100%;
   background: var(--background);
   color: var(--ink);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: Circular, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 button,
@@ -39,303 +36,649 @@ button {
   border: 0;
 }
 
-.appShell {
+.airbnbPage {
   min-height: 100vh;
+  background: #fff;
+}
+
+.airbnbHeader {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 76px;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 210px minmax(360px, 1fr) 220px;
+  align-items: center;
+  gap: 24px;
+  padding: 0 40px;
+  border-bottom: 1px solid #ebebeb;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(12px);
 }
 
-.sidebar {
-  background: #123237;
-  color: white;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-}
-
-.brand {
-  display: flex;
-  flex-direction: column;
+.airbnbLogo {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-}
-
-.brandMark {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: #eef8f5;
-  color: var(--teal);
+  color: var(--air);
+  font-size: 22px;
   font-weight: 800;
 }
 
-.brand h1 {
-  margin: 0;
-  font-size: 21px;
-  line-height: 1.18;
-  letter-spacing: 0;
-}
-
-.brand p,
-.listingMeta,
-.finePrint {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.listingList {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.listingButton {
+.searchPill {
+  justify-self: center;
+  min-height: 48px;
+  max-width: 720px;
   width: 100%;
-  text-align: left;
-  padding: 12px;
-  border-radius: 8px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto 40px;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  background: white;
+}
+
+.searchPill select {
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  padding: 0 18px;
+  color: var(--ink);
+  background: white;
+  font-weight: 700;
+}
+
+.searchPill span {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 18px;
+  border-left: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.searchPill button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--air);
   color: white;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
 }
 
-.listingButton[aria-pressed="true"] {
-  background: #f7fbf8;
-  color: var(--ink);
-  border-color: #f7fbf8;
-}
-
-.listingButton strong {
-  display: block;
-  font-size: 14px;
-  line-height: 1.3;
-  margin-bottom: 6px;
-}
-
-.listingButton span {
-  display: block;
-  font-size: 12px;
-  line-height: 1.4;
-  color: currentColor;
-  opacity: 0.72;
-}
-
-.main {
-  min-width: 0;
-  padding: 26px;
-  display: grid;
-  gap: 18px;
-}
-
-.topBar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 18px;
-}
-
-.topBar h2 {
-  margin: 0;
-  font-size: 25px;
-  letter-spacing: 0;
-}
-
-.statusPill {
+.managerBadge {
+  justify-self: end;
+  padding: 10px 14px;
   border-radius: 999px;
-  background: #e8f2ef;
-  color: var(--teal-strong);
-  padding: 9px 12px;
+  border: 1px solid var(--line);
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
 }
 
-.workspaceGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
-  gap: 18px;
-  align-items: start;
+.listingShell {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 26px 0 48px;
 }
 
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-}
-
-.panelHeader {
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--line);
+.listingTitleBlock {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
-  align-items: center;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 18px;
 }
 
-.panelHeader h3 {
-  margin: 0;
-  font-size: 16px;
+.listingTitleBlock h1 {
+  margin: 0 0 8px;
+  font-size: 27px;
+  line-height: 1.12;
+  letter-spacing: 0;
 }
 
-.panelHeader small {
+.listingSubline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   color: var(--muted);
+  font-size: 14px;
 }
 
-.listingHero {
-  min-height: 168px;
+.listingSubline span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.listingSubline span:not(:last-child)::after {
+  content: "";
+  width: 3px;
+  height: 3px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.titleActions {
+  display: flex;
+  gap: 8px;
+}
+
+.titleActions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--ink);
+  background: white;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.photoGrid {
+  height: 430px;
   display: grid;
-  align-content: end;
-  padding: 22px;
+  grid-template-columns: 2fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--soft);
+}
+
+.photoTile {
+  position: relative;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 16px;
   color: white;
-  background:
-    linear-gradient(120deg, rgba(6, 57, 62, 0.82), rgba(6, 57, 62, 0.15)),
-    url("https://images.unsplash.com/photo-1585208798174-6cedd86e019a?auto=format&fit=crop&w=1400&q=80");
+  overflow: hidden;
   background-size: cover;
   background-position: center;
 }
 
-.listingHero h3 {
-  max-width: 720px;
-  margin: 0 0 8px;
-  font-size: 28px;
-  line-height: 1.08;
+.photoTile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.42));
 }
 
-.listingHero p {
+.photoTile span,
+.photoTile button {
+  position: relative;
+  z-index: 1;
+}
+
+.photoTile span {
+  font-weight: 800;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.32);
+}
+
+.photoTile button {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.photoTile1 {
+  grid-row: 1 / span 2;
+  background-image: url("https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1100&q=80");
+}
+
+.photoTile2 {
+  background-image: url("https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=900&q=80");
+}
+
+.photoTile3 {
+  background-image: url("https://images.unsplash.com/photo-1484154218962-a197022b5858?auto=format&fit=crop&w=900&q=80");
+}
+
+.photoTile4 {
+  background-image: url("https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=80");
+}
+
+.photoTile5 {
+  background-image: url("https://images.unsplash.com/photo-1585208798174-6cedd86e019a?auto=format&fit=crop&w=900&q=80");
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 370px;
+  gap: 72px;
+  align-items: start;
+  margin-top: 42px;
+}
+
+.listingContent {
+  min-width: 0;
+}
+
+.hostSection {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hostSection h2,
+.listingSection h2,
+.agentCard h2 {
   margin: 0;
-  max-width: 620px;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+
+.hostSection h2 {
+  font-size: 22px;
+  line-height: 1.18;
+}
+
+.hostSection p,
+.sectionHeaderRow p,
+.reservationCard p,
+.mutedText {
+  color: var(--muted);
   line-height: 1.45;
 }
 
-.details {
-  padding: 18px;
+.hostAvatar,
+.reviewAvatar {
   display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #f2f2f2;
+  color: var(--ink);
+}
+
+.hostAvatar {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+}
+
+.trustStrip {
+  display: grid;
+  gap: 18px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.trustItem {
+  display: flex;
   gap: 16px;
+  align-items: flex-start;
 }
 
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.metric {
-  background: var(--surface-soft);
-  border: 1px solid #d8e7e4;
-  border-radius: 8px;
-  padding: 12px;
-}
-
-.metric span {
+.trustItem strong,
+.trustItem span {
   display: block;
+}
+
+.trustItem span {
+  margin-top: 3px;
   color: var(--muted);
-  font-size: 12px;
-}
-
-.metric strong {
-  display: block;
-  margin-top: 5px;
-  font-size: 16px;
-}
-
-.description {
-  color: #354247;
-  line-height: 1.58;
   font-size: 14px;
 }
 
-.chips {
+.listingSection {
+  padding: 32px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.listingSection h2 {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.descriptionText {
+  margin: 18px 0 0;
+  color: #333;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.editableHighlightBlock {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #ffd8e1;
+  border-radius: 12px;
+  background: #fff7f9;
+}
+
+.editableHighlightBlock > div {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  color: var(--air);
 }
 
-.chip {
-  border-radius: 999px;
-  padding: 7px 10px;
-  background: #fbf7ec;
-  color: #76561c;
-  border: 1px solid #ead8a9;
-  font-size: 12px;
-  font-weight: 700;
+.editableHighlightBlock p {
+  margin: 10px 0 0;
+  color: #333;
+  line-height: 1.5;
 }
 
-.agentPanel {
-  padding: 18px;
+.sectionHeaderRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.sectionHeaderRow p {
+  margin: 7px 0 0;
+}
+
+.amenityGrid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 34px;
+  margin-top: 20px;
+}
+
+.amenityItem {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--ink);
+}
+
+.nearbyList,
+.reviewGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
-.promptBox {
-  min-height: 132px;
-  width: 100%;
-  resize: vertical;
-  border-radius: 8px;
+.nearbyItem,
+.reviewItem {
   border: 1px solid var(--line);
-  padding: 13px;
-  color: var(--ink);
-  background: #fbfcfb;
-  line-height: 1.45;
+  border-radius: 12px;
+  padding: 14px;
+  background: white;
 }
 
-.actions {
+.nearbyItem {
+  display: flex;
+  gap: 12px;
+}
+
+.nearbyIcon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #fff1f4;
+  color: var(--air);
+}
+
+.nearbyItem strong,
+.nearbyItem span,
+.reviewHeader strong,
+.reviewHeader span {
+  display: block;
+}
+
+.nearbyItem strong {
+  line-height: 1.28;
+}
+
+.nearbyItem span,
+.reviewHeader span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.reviewHeader {
   display: flex;
   gap: 10px;
   align-items: center;
+  margin-bottom: 10px;
 }
 
+.reviewAvatar {
+  width: 36px;
+  height: 36px;
+}
+
+.reviewItem p {
+  margin: 0;
+  color: #333;
+  line-height: 1.55;
+}
+
+.sideRail {
+  position: sticky;
+  top: 100px;
+  display: grid;
+  gap: 18px;
+}
+
+.reservationCard,
+.agentCard {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.reservationCard {
+  padding: 22px;
+}
+
+.priceLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.priceLine strong {
+  font-size: 22px;
+}
+
+.priceLine span {
+  color: var(--muted);
+}
+
+.bookingBox {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid #b0b0b0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bookingBox > div {
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  padding: 10px 12px;
+}
+
+.bookingBox > div:first-child,
+.guestRow {
+  border-right: 1px solid #b0b0b0;
+}
+
+.guestRow {
+  grid-column: 1 / span 2;
+  border-top: 1px solid #b0b0b0;
+  border-right: 0;
+}
+
+.bookingBox span {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.bookingBox strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.reserveButton,
 .primaryButton {
+  width: 100%;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
-  padding: 0 16px;
   border-radius: 8px;
-  background: var(--teal);
   color: white;
+  background: linear-gradient(90deg, var(--air), var(--air-dark));
   font-weight: 800;
   cursor: pointer;
 }
 
+.reserveButton {
+  margin-top: 16px;
+}
+
+.reservationCard p {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 13px;
+}
+
+.agentCard {
+  padding: 18px;
+}
+
+.agentCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.agentCard h2 {
+  margin-top: 4px;
+  font-size: 20px;
+  line-height: 1.18;
+}
+
+.agentEyebrow {
+  color: var(--air);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.promptBox {
+  width: 100%;
+  min-height: 128px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--ink);
+  background: #fff;
+  line-height: 1.45;
+}
+
+.scopeBox {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.scopeBox strong,
+.scopeBox span {
+  display: block;
+}
+
+.scopeBox strong {
+  font-size: 13px;
+}
+
+.scopeBox span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.agentActions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
 .primaryButton:disabled {
   cursor: wait;
-  opacity: 0.62;
+  opacity: 0.65;
 }
 
 .ghostButton {
-  min-height: 42px;
-  padding: 0 13px;
+  min-height: 48px;
+  padding: 0 14px;
   border-radius: 8px;
-  background: #eef2f0;
-  color: var(--teal-strong);
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  font-weight: 800;
   cursor: pointer;
-  font-weight: 700;
+}
+
+.emptyState,
+.responseBox,
+.auditBox,
+.stepBox {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.emptyState {
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .result {
   display: grid;
-  gap: 12px;
-}
-
-.responseBox,
-.stepBox,
-.auditBox {
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: #fbfcfb;
-  padding: 13px;
+  gap: 0;
 }
 
 .responseBox h4,
-.stepBox h4,
 .auditBox h4 {
   margin: 0 0 8px;
   font-size: 14px;
@@ -343,127 +686,136 @@ button {
 
 .responseBox p,
 .auditBox p {
-  margin: 0;
-  color: #344249;
-  line-height: 1.52;
-  white-space: pre-wrap;
-}
-
-.diffGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.diffGrid > div {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px;
-  background: white;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.diffGrid strong {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--teal-strong);
-}
-
-.stepList {
-  display: grid;
-  gap: 10px;
-}
-
-.stepBox summary {
-  cursor: pointer;
-  font-weight: 800;
-  color: var(--teal-strong);
-}
-
-.stepBox pre {
-  margin: 10px 0 0;
-  max-height: 240px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  color: #2f3b40;
-}
-
-.emptyState {
-  border: 1px dashed #c9d5d2;
-  border-radius: 8px;
-  padding: 20px;
-  color: var(--muted);
-  background: #fbfcfb;
+  margin: 8px 0 0;
+  color: #333;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .decision {
   display: inline-flex;
   width: fit-content;
   border-radius: 999px;
-  padding: 7px 10px;
+  padding: 6px 10px;
   font-size: 12px;
   font-weight: 800;
 }
 
 .decision.approve {
-  background: #e7f4ed;
+  background: #e9f7f1;
   color: var(--green);
 }
 
 .decision.revise {
-  background: #fff5de;
-  color: #8a6113;
+  background: #fff6df;
+  color: var(--gold);
 }
 
 .decision.block {
-  background: #fbe7e5;
+  background: #ffebee;
   color: var(--red);
 }
 
-@media (max-width: 1060px) {
-  .appShell {
+.diffGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.diffGrid > div {
+  max-height: 190px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--soft);
+}
+
+.diffGrid strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.stepList {
+  display: grid;
+}
+
+.stepBox summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.stepBox pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+@media (max-width: 1050px) {
+  .airbnbHeader {
     grid-template-columns: 1fr;
+    height: auto;
+    padding: 14px 18px;
   }
 
-  .sidebar {
-    max-height: none;
+  .airbnbLogo,
+  .managerBadge {
+    justify-self: center;
   }
 
-  .listingList {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .searchPill {
+    order: 3;
   }
 
-  .workspaceGrid {
+  .contentGrid {
     grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .sideRail {
+    position: static;
   }
 }
 
-@media (max-width: 700px) {
-  .main {
-    padding: 16px;
+@media (max-width: 720px) {
+  .listingShell {
+    width: min(100% - 28px, 1120px);
+    padding-top: 16px;
   }
 
-  .listingList,
-  .metrics,
-  .diffGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .topBar,
-  .actions {
-    align-items: stretch;
+  .listingTitleBlock {
     flex-direction: column;
   }
 
-  .statusPill,
-  .primaryButton,
-  .ghostButton {
-    width: 100%;
+  .photoGrid {
+    height: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(5, 170px);
+  }
+
+  .photoTile1 {
+    grid-row: auto;
+  }
+
+  .searchPill {
+    grid-template-columns: 1fr 40px;
+  }
+
+  .searchPill span {
+    display: none;
+  }
+
+  .amenityGrid,
+  .nearbyList,
+  .reviewGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .agentActions {
+    grid-template-columns: 1fr;
   }
 }
