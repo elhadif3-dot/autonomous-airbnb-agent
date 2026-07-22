@@ -1367,7 +1367,7 @@ function detectSignals(
   const description = currentDescription.toLowerCase();
   const hasBroadIntent = intent.includes("review_alignment");
 
-  if (intent.includes("hills") || reviewText.includes("hill") || reviewText.includes("steep")) {
+  if (intent.includes("hills") || (hasBroadIntent && (reviewText.includes("hill") || reviewText.includes("steep")))) {
     const evidence = reviews
       .filter((review) => /hill|steep|walk up|climb/i.test(review.comments))
       .map((review) => excerpt(review.comments));
@@ -1383,7 +1383,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("stairs") || reviewText.includes("stairs") || reviewText.includes("steps")) {
+  if (intent.includes("stairs") || (hasBroadIntent && (reviewText.includes("stairs") || reviewText.includes("steps")))) {
     const evidence = reviews
       .filter((review) => /stairs|steps|elevator|lift/i.test(review.comments))
       .map((review) => excerpt(review.comments));
@@ -1399,7 +1399,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("noise") || /\b(noise|noisy|loud|nightlife|bar|bars)\b/i.test(reviewText)) {
+  if (intent.includes("noise") || (hasBroadIntent && /\b(noise|noisy|loud|nightlife|bar|bars)\b/i.test(reviewText))) {
     const evidence = reviews
       .filter((review) => /\b(noisy|loud|nightlife|bar|bars)\b|busy street|weekend nights/i.test(review.comments))
       .filter((review) => !/\b(no issues with noise|not noisy|very quiet|quiet stay)\b/i.test(review.comments))
@@ -1416,7 +1416,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("temperature") || /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c/i.test(reviewText)) {
+  if (intent.includes("temperature") || (hasBroadIntent && /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c/i.test(reviewText))) {
     const evidence = reviews
       .filter((review) => /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c|\bac\b/i.test(review.comments))
       .map((review) => excerpt(review.comments));
@@ -1437,7 +1437,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("space") || /small|tiny|compact|cramped/i.test(reviewText)) {
+  if (intent.includes("space") || (hasBroadIntent && /small|tiny|compact|cramped/i.test(reviewText))) {
     const evidence = reviews
       .filter((review) => /small|tiny|compact|cramped/i.test(review.comments))
       .map((review) => excerpt(review.comments));
@@ -1469,7 +1469,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("view") || /view|views|river|terrace|balcony/i.test(reviewText)) {
+  if (intent.includes("view") || (hasBroadIntent && /view|views|river|terrace|balcony/i.test(reviewText))) {
     const evidence = reviews
       .filter((review) => /view|views|river|terrace|balcony/i.test(review.comments))
       .map((review) => excerpt(review.comments));
@@ -1485,7 +1485,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("cleanliness") || /clean|spotless/i.test(reviewText)) {
+  if (intent.includes("cleanliness") || (hasBroadIntent && /clean|spotless/i.test(reviewText))) {
     const evidence = reviews
       .filter((review) => /clean|spotless|well kept|tidy/i.test(review.comments))
       .map((review) => excerpt(review.comments));
@@ -1501,7 +1501,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("comfort") || /comfortable|comfy|bed/i.test(reviewText)) {
+  if (intent.includes("comfort") || (hasBroadIntent && /comfortable|comfy|bed/i.test(reviewText))) {
     const evidence = reviews
       .filter((review) => /comfortable|comfy|bed|sleep/i.test(review.comments))
       .map((review) => excerpt(review.comments));
@@ -1517,7 +1517,7 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("wifi") || reviewText.includes("wifi") || reviewText.includes("internet")) {
+  if (intent.includes("wifi") || (hasBroadIntent && (reviewText.includes("wifi") || reviewText.includes("internet")))) {
     const evidence = reviews
       .filter((review) => /wifi|wi-fi|internet|remote|work/i.test(review.comments))
       .map((review) => excerpt(review.comments));
