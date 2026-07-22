@@ -467,9 +467,9 @@ function AgentFeatureBar({
           <MessageSquareText size={20} />
         </div>
         <div>
-          <span className="agentEyebrow">Autonomous Listing Editor</span>
+          <span className="agentEyebrow">FixGap AI</span>
           <h2>Improve this listing page</h2>
-          <p>Ask for a listing update. The agent selects actions, edits only allowed demo text, and reports what changed.</p>
+          <p>Find gaps, improve allowed demo text, and explain what changed.</p>
         </div>
       </div>
 
