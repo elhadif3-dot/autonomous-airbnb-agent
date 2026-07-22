@@ -57,6 +57,14 @@ type TraceSummary = {
   status?: string;
 };
 
+function createDemoSessionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 const defaultPrompt =
   "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
 
@@ -96,6 +104,7 @@ function promptExamples(listingName: string) {
 }
 
 export function DemoDashboard({ initialListings, listingOptions, totalDatasetListings }: Props) {
+  const [demoSessionId] = useState(() => createDemoSessionId());
   const [listings, setListings] = useState(initialListings);
   const [selectedId, setSelectedId] = useState(initialListings[0]?.id ?? listingOptions[0]?.id ?? "");
   const [prompt, setPrompt] = useState(defaultPrompt);
@@ -160,7 +169,8 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         body: JSON.stringify({
           prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
           current_page_description: currentDescription,
-          portfolio_page_descriptions: portfolioPageDescriptions
+          portfolio_page_descriptions: portfolioPageDescriptions,
+          session_id: demoSessionId
         })
       });
 
@@ -223,7 +233,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ listing_id: selectedListing.id })
+      body: JSON.stringify({ listing_id: selectedListing.id, session_id: demoSessionId })
     });
 
     setSimulatedDescriptions((current) => ({
@@ -938,11 +948,19 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
     const strategy = stringValue(response.search_strategy);
     const elapsedMs = numberValue(response.elapsed_ms);
     const stopReason = stringValue(response.stop_reason);
+    const coveredAfter = numberValue(response.coverage_covered_after_count);
+    const totalInScope = numberValue(response.coverage_total_reviews_in_scope);
+    const newReviews = numberValue(response.coverage_new_reviews_count);
+    const coverageComplete = response.coverage_complete === true;
+    const coverageText =
+      coveredAfter !== undefined && totalInScope !== undefined
+        ? ` Coverage: ${coveredAfter}/${totalInScope} review texts checked in this demo session${newReviews !== undefined ? `, ${newReviews} newly added in this action` : ""}${coverageComplete ? ", scope complete" : ""}.`
+        : "";
     return {
       title: "Retrieved guest review evidence",
       status: `${retrievedCount ?? response.retrieved_reviews.length} retrieved reviews`,
       rationale: strategy ? `Search mode: ${strategy}${queriesRun ? `, ${queriesRun} adaptive queries` : ""}.` : undefined,
-      observation: `${retrievedCount ?? response.retrieved_reviews.length} reviews were retrieved from ${source ?? "Review RAG"} for this action in ${elapsedMs ?? "a bounded"} ms. Stop reason: ${stopReason ?? "budgeted search complete"}. The full read-only index has ${indexedCount ?? "many"} review texts for this listing.`
+      observation: `${retrievedCount ?? response.retrieved_reviews.length} reviews were retrieved from ${source ?? "Review RAG"} for this action in ${elapsedMs ?? "a bounded"} ms. Stop reason: ${stopReason ?? "budgeted search complete"}.${coverageText} The full read-only index has ${indexedCount ?? "many"} review texts for this listing.`
     };
   }
 

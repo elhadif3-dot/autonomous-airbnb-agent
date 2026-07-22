@@ -117,6 +117,11 @@ export async function getReviewPreviewForListing(listingId: string, limit = 12):
   return reviews.filter((review) => review.listingId === listingId).slice(0, limit);
 }
 
+export async function getLocalReviewsForListing(listingId: string): Promise<Review[]> {
+  const reviews = await getAllLocalReviews();
+  return reviews.filter((review) => review.listingId === listingId);
+}
+
 export async function getReviewSearchResult(
   listingId: string,
   query?: string,

@@ -28,7 +28,10 @@ export function GET() {
                 topics: ["review_alignment", "stairs", "temperature"],
                 search_mode: "adaptive_time_boxed_end_to_end_alignment",
                 time_budget_ms: 90000,
-                target_unique_reviews: 120
+                target_unique_reviews: 150,
+                coverage_window_size: 240,
+                coverage_scope_key:
+                  "alignment:cleanliness+comfort+hills+location+nearby_highlights+noise+review_alignment+space+stairs+temperature+view+wifi"
               },
               short_rationale: "Guest reviews are the primary evidence source before drafting a page edit.",
               state_update: "Review evidence is missing.",
@@ -116,7 +119,9 @@ export function GET() {
               queries_run: 2,
               retrieved_review_count: 80,
               indexed_review_texts_available: 1909,
-              retrieval_note: "Pinecone searches the full review namespace with adaptive topic queries filtered by listing_id, then the agent merges unique review evidence within the run budget."
+              coverage_covered_after_count: 240,
+              coverage_total_reviews_in_scope: 1909,
+              retrieval_note: "Pinecone searches the full review namespace with adaptive topic queries filtered by listing_id, while the session coverage layer adds a new unseen local review window for repeated requests."
             }
           },
           {

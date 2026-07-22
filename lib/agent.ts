@@ -1,5 +1,6 @@
 import {
   getListingById,
+  getLocalReviewsForListing,
   getManagedDemoListings,
   getPlacesNearListing,
   getReviewSearchResult,
@@ -22,6 +23,10 @@ import {
   createAuditLog,
   getSimulatedListingPage
 } from "@/lib/simulatedStore";
+import {
+  resetReviewCoverageForListing,
+  selectNextReviewCoverageWindow
+} from "@/lib/reviewCoverageStore";
 import type {
   AgentStep,
   AuditLogEntry,
@@ -49,6 +54,7 @@ type Signal = {
 type AgentState = {
   prompt: string;
   listingId: string;
+  sessionId: string;
   currentDescriptionOverride?: string;
   intent: string[];
   selectedActions: string[];
@@ -83,6 +89,13 @@ type ReviewSearchStats = {
   topKPerQuery: number;
   targetUniqueReviews: number;
   maxUniqueReviews: number;
+  coverageWindowSize: number;
+  coverageScopeKey: string;
+  coverageTotalReviewsInScope: number;
+  coveragePreviouslyCoveredCount: number;
+  coverageNewReviewsCount: number;
+  coverageCoveredAfterCount: number;
+  coverageComplete: boolean;
   timeBudgetMs: number;
   elapsedMs: number;
   stopReason: string;
@@ -115,6 +128,7 @@ export async function executeListingAgent(prompt: string): Promise<ExecuteRespon
 type ExecuteOptions = {
   currentPageDescription?: string;
   portfolioPageDescriptions?: Record<string, string>;
+  sessionId?: string;
 };
 
 export async function executeListingAgentWithOptions(prompt: string, options: ExecuteOptions = {}): Promise<ExecuteResponse> {
@@ -154,7 +168,12 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
     }
 
     if (isPortfolioRequest(prompt)) {
-      return executePortfolioAgent(prompt, steps, options.portfolioPageDescriptions ?? {});
+      return executePortfolioAgent(
+        prompt,
+        steps,
+        options.portfolioPageDescriptions ?? {},
+        options.sessionId ?? "api-default-session"
+      );
     }
 
     const listingId = extractListingId(prompt);
@@ -168,6 +187,7 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
     const state: AgentState = {
       prompt,
       listingId,
+      sessionId: options.sessionId ?? "api-default-session",
       currentDescriptionOverride: options.currentPageDescription,
       intent: inferIntent(prompt),
       selectedActions: [],
@@ -235,7 +255,8 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
 async function executePortfolioAgent(
   prompt: string,
   steps: AgentStep[],
-  portfolioPageDescriptions: Record<string, string>
+  portfolioPageDescriptions: Record<string, string>,
+  sessionId: string
 ): Promise<ExecuteResponse> {
   const managedListings = await getManagedDemoListings(MAX_PORTFOLIO_LISTINGS);
   steps.push(step("Portfolio Manager", "Select the manager-owned demo listings with the richest evidence.", prompt, {
@@ -258,6 +279,7 @@ async function executePortfolioAgent(
     const state: AgentState = {
       prompt: listingPrompt,
       listingId: listing.id,
+      sessionId: `${sessionId}:portfolio`,
       currentDescriptionOverride: portfolioPageDescriptions[listing.id],
       intent: inferIntent(listingPrompt),
       selectedActions: [],
@@ -643,6 +665,13 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         top_k_per_query: reviewResult.stats.topKPerQuery,
         target_unique_reviews: reviewResult.stats.targetUniqueReviews,
         max_unique_reviews: reviewResult.stats.maxUniqueReviews,
+        coverage_window_size: reviewResult.stats.coverageWindowSize,
+        coverage_scope_key: reviewResult.stats.coverageScopeKey,
+        coverage_total_reviews_in_scope: reviewResult.stats.coverageTotalReviewsInScope,
+        coverage_previously_covered_count: reviewResult.stats.coveragePreviouslyCoveredCount,
+        coverage_new_reviews_count: reviewResult.stats.coverageNewReviewsCount,
+        coverage_covered_after_count: reviewResult.stats.coverageCoveredAfterCount,
+        coverage_complete: reviewResult.stats.coverageComplete,
         time_budget_ms: reviewResult.stats.timeBudgetMs,
         elapsed_ms: reviewResult.stats.elapsedMs,
         stop_reason: reviewResult.stats.stopReason,
@@ -656,7 +685,9 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         retrieval_note:
           reviewResult.source === "pinecone"
             ? "Pinecone searched the full review namespace with adaptive topic queries filtered by listing_id, then the agent merged unique review evidence within the run budget."
-            : "The local CSV fallback filtered all prepared review texts by listing_id, then returned a bounded relevant sample for the current action."
+            : "The local CSV fallback filtered all prepared review texts by listing_id, then returned a bounded relevant sample for the current action.",
+        coverage_note:
+          "The agent also adds a new unseen local review window for this listing and audit scope during the current demo session, so repeated requests continue reviewing additional source reviews instead of reusing only the same sample."
       }));
       return true;
     }
@@ -732,7 +763,12 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       }
 
       const proposal = EditProposalSchema.parse(
-        draftEdit(state.listing, state.signals, state.page?.currentDescription ?? state.listing.description)
+        draftEdit(
+          state.listing,
+          state.signals,
+          state.page?.currentDescription ?? state.listing.description,
+          state.reviewSearchStats
+        )
       );
       state.proposal = proposal;
       steps.push(step("Edit & Decision Tools", "Draft a narrow page edit, ask for more evidence, or stop.", JSON.stringify(actionRequest.tool_input), {
@@ -851,6 +887,9 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       }
 
       state.pageUpdate = applySimulatedPageUpdate(state.listing, state.proposal, state.supervisor.decision);
+      if (state.proposal.action === "restore_original_page") {
+        resetReviewCoverageForListing(state.sessionId, state.listing.id);
+      }
       state.auditLog = createAuditLog({
         listing: state.listing,
         managerPrompt: state.prompt,
@@ -1083,6 +1122,8 @@ function reviewSearchToolInput(state: AgentState, extra: Record<string, unknown>
     time_budget_ms: plan.timeBudgetMs,
     target_unique_reviews: plan.targetUniqueReviews,
     max_unique_reviews: plan.maxUniqueReviews,
+    coverage_window_size: plan.coverageWindowSize,
+    coverage_scope_key: reviewCoverageScopeKey(state),
     ...extra
   };
 }
@@ -1122,14 +1163,15 @@ async function runAdaptiveReviewSearch(
 
   const plan = reviewSearchPlan(state);
   const start = Date.now();
-  const byKey = new Map<string, Review>();
+  const semanticByKey = new Map<string, Review>();
   let source: "pinecone" | "csv_fallback" = "pinecone";
   let queriesRun = 0;
-  let stopReason = "completed_all_planned_queries";
+  let semanticStopReason = "completed_all_planned_queries";
+  const semanticCap = Math.max(0, plan.maxUniqueReviews - plan.coverageWindowSize);
 
   for (const focus of plan.focuses) {
     if (Date.now() - start >= plan.timeBudgetMs) {
-      stopReason = "time_budget_reached";
+      semanticStopReason = "time_budget_reached";
       break;
     }
 
@@ -1138,29 +1180,56 @@ async function runAdaptiveReviewSearch(
     source = result.source;
 
     for (const review of result.reviews) {
-      byKey.set(review.id || `${review.listingId}:${review.comments.slice(0, 80)}`, review);
-      if (byKey.size >= plan.maxUniqueReviews) {
+      semanticByKey.set(review.id || `${review.listingId}:${review.comments.slice(0, 80)}`, review);
+      if (semanticCap > 0 && semanticByKey.size >= semanticCap) {
         break;
       }
     }
 
     if (source === "csv_fallback") {
-      stopReason = "csv_fallback_single_pass";
+      semanticStopReason = "csv_fallback_single_pass";
       break;
     }
 
-    if (byKey.size >= plan.targetUniqueReviews) {
-      stopReason = "target_unique_reviews_reached";
+    if (semanticByKey.size >= plan.targetUniqueReviews) {
+      semanticStopReason = "target_unique_reviews_reached";
       break;
     }
 
-    if (byKey.size >= plan.maxUniqueReviews) {
-      stopReason = "max_unique_reviews_reached";
+    if (semanticCap > 0 && semanticByKey.size >= semanticCap) {
+      semanticStopReason = "semantic_review_cap_reached";
       break;
     }
   }
 
-  const reviews = [...byKey.values()].slice(0, plan.maxUniqueReviews);
+  const localReviews = await getLocalReviewsForListing(state.listing.id);
+  const scopeKey = reviewCoverageScopeKey(state);
+  const scopedReviews = scopeReviewsForIntent(localReviews, state.intent, state.prompt);
+  const coverage = selectNextReviewCoverageWindow({
+    sessionId: state.sessionId,
+    listingId: state.listing.id,
+    scopeKey,
+    reviews: scopedReviews.length > 0 ? scopedReviews : localReviews,
+    windowSize: plan.coverageWindowSize
+  });
+
+  const mergedByKey = new Map<string, Review>();
+  for (const review of coverage.reviews) {
+    mergedByKey.set(review.id || `${review.listingId}:${review.comments.slice(0, 80)}`, review);
+  }
+
+  for (const review of semanticByKey.values()) {
+    if (mergedByKey.size >= plan.maxUniqueReviews) {
+      break;
+    }
+    mergedByKey.set(review.id || `${review.listingId}:${review.comments.slice(0, 80)}`, review);
+  }
+
+  const reviews = [...mergedByKey.values()].slice(0, plan.maxUniqueReviews);
+  const stopReason = [
+    semanticStopReason,
+    coverage.completed ? "review_coverage_scope_complete" : "review_coverage_window_selected"
+  ].join("; ");
 
   return {
     reviews,
@@ -1172,6 +1241,13 @@ async function runAdaptiveReviewSearch(
       topKPerQuery: plan.topKPerQuery,
       targetUniqueReviews: plan.targetUniqueReviews,
       maxUniqueReviews: plan.maxUniqueReviews,
+      coverageWindowSize: plan.coverageWindowSize,
+      coverageScopeKey: coverage.scopeKey,
+      coverageTotalReviewsInScope: coverage.totalReviewsInScope,
+      coveragePreviouslyCoveredCount: coverage.previouslyCoveredCount,
+      coverageNewReviewsCount: coverage.newlyCoveredCount,
+      coverageCoveredAfterCount: coverage.coveredAfterCount,
+      coverageComplete: coverage.completed,
       timeBudgetMs: plan.timeBudgetMs,
       elapsedMs: Date.now() - start,
       stopReason
@@ -1185,6 +1261,7 @@ type ReviewSearchPlan = {
   topKPerQuery: number;
   targetUniqueReviews: number;
   maxUniqueReviews: number;
+  coverageWindowSize: number;
   timeBudgetMs: number;
 };
 
@@ -1211,7 +1288,8 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
       ],
       topKPerQuery: 50,
       targetUniqueReviews: 100,
-      maxUniqueReviews: 140,
+      maxUniqueReviews: 260,
+      coverageWindowSize: 180,
       timeBudgetMs
     };
   }
@@ -1226,7 +1304,8 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
       ],
       topKPerQuery: 50,
       targetUniqueReviews: 110,
-      maxUniqueReviews: 140,
+      maxUniqueReviews: 280,
+      coverageWindowSize: 200,
       timeBudgetMs
     };
   }
@@ -1240,7 +1319,8 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
       ],
       topKPerQuery: 50,
       targetUniqueReviews: 90,
-      maxUniqueReviews: 120,
+      maxUniqueReviews: 220,
+      coverageWindowSize: 160,
       timeBudgetMs
     };
   }
@@ -1256,7 +1336,8 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
       ],
       topKPerQuery: 60,
       targetUniqueReviews: 150,
-      maxUniqueReviews: 180,
+      maxUniqueReviews: 360,
+      coverageWindowSize: 240,
       timeBudgetMs
     };
   }
@@ -1269,9 +1350,74 @@ function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
     ],
     topKPerQuery: 32,
     targetUniqueReviews: 64,
-    maxUniqueReviews: 80,
+    maxUniqueReviews: 180,
+    coverageWindowSize: 140,
     timeBudgetMs
   };
+}
+
+function reviewCoverageScopeKey(state: AgentState): string {
+  const mode = needsEvidenceReport(state)
+    ? "evidence"
+    : needsManagerRecommendations(state)
+      ? "manager"
+      : state.intent.includes("nearby_highlights") && !state.intent.includes("review_alignment")
+        ? "nearby"
+        : state.intent.includes("review_alignment")
+          ? "alignment"
+          : "focused";
+
+  const topics = state.intent
+    .filter((topic) => !["restore_original", "review_only"].includes(topic))
+    .filter((topic) => mode === "alignment" || topic !== "review_alignment")
+    .sort();
+
+  const radius = mode === "nearby" ? `:radius_${requestedPlacesRadiusKm(state.prompt)}` : "";
+  return `${mode}:${topics.join("+") || "all"}${radius}`;
+}
+
+function scopeReviewsForIntent(reviews: Review[], intent: string[], prompt: string): Review[] {
+  if (intent.includes("review_alignment") || intent.includes("property_fixes")) {
+    return reviews;
+  }
+
+  const keywords = scopeKeywordsForIntent(intent, prompt);
+  if (keywords.length === 0) {
+    return reviews;
+  }
+
+  return reviews.filter((review) => {
+    const normalized = review.comments.toLowerCase();
+    return keywords.some((keyword) => promptHasKeyword(normalized, keyword));
+  });
+}
+
+function scopeKeywordsForIntent(intent: string[], prompt: string): string[] {
+  if (intent.includes("nearby_highlights")) {
+    return [
+      ...(topicKeywords.location ?? []),
+      ...(topicKeywords.nearby_highlights ?? []),
+      "restaurant",
+      "restaurants",
+      "cafe",
+      "cafes",
+      "park",
+      "attraction",
+      "transit",
+      "transport"
+    ];
+  }
+
+  if (intent.includes("evidence_search")) {
+    return intent
+      .filter((topic) => topicKeywords[topic])
+      .flatMap((topic) => topicKeywords[topic]);
+  }
+
+  return intent
+    .filter((topic) => !["review_alignment", "restore_original", "review_only"].includes(topic))
+    .filter((topic) => topicKeywords[topic])
+    .flatMap((topic) => topicKeywords[topic]);
 }
 
 function evidenceSearchQueryText(intent: string[], prompt: string): string {
@@ -1604,7 +1750,12 @@ function limitSignalEvidence(signal: Signal): Signal {
   };
 }
 
-function draftEdit(listing: Listing, signals: Signal[], currentDescription: string): EditProposal {
+function draftEdit(
+  listing: Listing,
+  signals: Signal[],
+  currentDescription: string,
+  reviewStats?: ReviewSearchStats
+): EditProposal {
   const editableSignals = signals
     .filter(
       (signal) =>
@@ -1641,14 +1792,17 @@ function draftEdit(listing: Listing, signals: Signal[], currentDescription: stri
     if (coveredStrongSignals.length > 0) {
       return stopProposal(
         listing.id,
-        `The current simulated description already covers the strongest supported topics: ${coveredStrongSignals
+        `${coverageProgressSentence(reviewStats)}The current simulated description already covers the strongest supported topics in this review window: ${coveredStrongSignals
           .slice(0, 4)
           .map((signal) => signal.topic)
-          .join(", ")}.`
+          .join(", ")}.${coverageContinuationSentence(reviewStats)}`
       );
     }
 
-    return stopProposal(listing.id, "No strong, editable gap was found.");
+    return stopProposal(
+      listing.id,
+      `${coverageProgressSentence(reviewStats)}No strong, editable gap was found in this review window.${coverageContinuationSentence(reviewStats)}`
+    );
   }
 
   const selectedSignals = selectSignalsForEdit(editableSignals);
@@ -1701,6 +1855,26 @@ function draftEdit(listing: Listing, signals: Signal[], currentDescription: stri
     proposed_description_addition: additions.join(" "),
     evidence_topics: selectedSignals.map((signal) => signal.topic)
   };
+}
+
+function coverageProgressSentence(stats?: ReviewSearchStats): string {
+  if (!stats || stats.coverageTotalReviewsInScope === 0) {
+    return "";
+  }
+
+  return `Review coverage for this audit scope: ${stats.coverageCoveredAfterCount}/${stats.coverageTotalReviewsInScope} review texts have been checked in this demo session. `;
+}
+
+function coverageContinuationSentence(stats?: ReviewSearchStats): string {
+  if (!stats || stats.coverageTotalReviewsInScope === 0) {
+    return "";
+  }
+
+  if (stats.coverageComplete) {
+    return " The agent has covered all review texts available for this scope in the current demo session.";
+  }
+
+  return " Run the same request again to continue into the next unseen review window.";
 }
 
 function descriptionAlreadyCoversSignal(description: string, topic: string): boolean {
@@ -2335,6 +2509,15 @@ function summarizeState(state: AgentState): string {
     has_listing: Boolean(state.listing),
     has_claims: Boolean(state.claims),
     has_review_observations: Boolean(state.relevantReviews),
+    review_search_stats: state.reviewSearchStats
+      ? {
+          strategy: state.reviewSearchStats.strategy,
+          coverage_scope_key: state.reviewSearchStats.coverageScopeKey,
+          coverage_checked: state.reviewSearchStats.coverageCoveredAfterCount,
+          coverage_total: state.reviewSearchStats.coverageTotalReviewsInScope,
+          coverage_complete: state.reviewSearchStats.coverageComplete
+        }
+      : null,
     has_google_places_context: Boolean(state.relevantPlaces),
     has_signals: Boolean(state.signals),
     has_proposal: Boolean(state.proposal),

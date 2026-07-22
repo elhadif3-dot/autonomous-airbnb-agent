@@ -14,7 +14,7 @@ The UI exposes the full prepared listing catalog for selection. The recommended 
 
 Live LLM calls are disabled by default. The code runs in mock mode unless token usage is explicitly approved and enabled.
 Every request first passes a deterministic scope guard. Out-of-scope requests stop before LLM, Review RAG, Google Places, or page-edit tools are used.
-Review RAG uses adaptive, time-boxed topic expansion: the agent can run multiple focused review searches, merge unique evidence, and stop when it has enough support or reaches the configured review-search budget.
+Review RAG uses adaptive, time-boxed topic expansion plus session-level review coverage: the agent can run multiple focused review searches, merge unique evidence, add a new unseen review window on repeated requests, and stop when it has enough support or reaches the configured review-search budget.
 
 ## Architecture
 

@@ -6,6 +6,7 @@ export async function POST(request: Request) {
     prompt?: unknown;
     current_page_description?: unknown;
     portfolio_page_descriptions?: unknown;
+    session_id?: unknown;
   };
 
   try {
@@ -42,7 +43,8 @@ export async function POST(request: Request) {
         typeof body.current_page_description === "string" ? body.current_page_description : undefined,
       portfolioPageDescriptions: isStringRecord(body.portfolio_page_descriptions)
         ? body.portfolio_page_descriptions
-        : undefined
+        : undefined,
+      sessionId: typeof body.session_id === "string" ? body.session_id : undefined
     });
     return Response.json(result, { status: result.status === "error" ? 400 : 200 });
   } catch (error) {
