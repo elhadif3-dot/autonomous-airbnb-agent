@@ -11,9 +11,9 @@ export function GET() {
     prompt_examples: [
       {
         prompt:
-          "Selected listing id: 1000509524156083637\nHi, I manage several Airbnb listings in Lisbon. Please handle this listing end to end: compare the current page with guest reviews and nearby context, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.",
+          "Selected listing id: 176153\nHi, I manage several Airbnb listings in Lisbon. Please handle The White House end to end: compare the current page with guest reviews first, use nearby context only when useful, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.",
         full_response:
-          "Approved and executed in the demo environment. The agent selected actions dynamically, added a concise evidence-backed listing note, updated only the simulated page description, and recorded that no live Airbnb account was accessed.",
+          "Approved and executed in the demo environment. The agent selected actions dynamically, found review-backed expectation gaps, updated only the simulated page description, and recorded that no live Airbnb account was accessed.",
         steps: [
           {
             module: "Autonomous Listing Editor Agent",
@@ -23,7 +23,7 @@ export function GET() {
             },
             response: {
               next_action: "search_reviews",
-              tool_input: { listing_id: "1000509524156083637", topics: ["location"], top_k: 6 },
+              tool_input: { listing_id: "176153", topics: ["review_alignment", "stairs", "temperature"], top_k: 18 },
               short_rationale: "Guest reviews are the primary evidence source before drafting a page edit.",
               state_update: "Review evidence is missing.",
               should_stop: false
@@ -37,7 +37,7 @@ export function GET() {
             },
             response: {
               decision: "Approve",
-              rationale: "The edit is narrow, contextual, and limited to the simulated listing page."
+              rationale: "The edit is narrow, review-backed, and limited to the simulated listing page."
             }
           },
           {
@@ -58,9 +58,9 @@ export function GET() {
       },
       {
         prompt:
-          "I manage 8 Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings, update only pages with strong evidence-backed improvements, skip listings where evidence is weak, and give me a per-listing audit summary.",
+          "I manage 8 Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings end to end. Prioritize gaps between guest reviews and current page descriptions; use Google Places only as supporting context; update only pages with strong evidence-backed improvements; and give me a per-listing audit summary.",
         full_response:
-          "Portfolio request completed. The agent selected the evidence-rich managed listings, ran each listing independently, updated only approved simulated page text, and reported per-listing decisions.",
+          "Portfolio request completed. The agent selected the evidence-rich managed listings, ran each listing independently, prioritized guest-review gaps, updated only approved simulated page text, and reported per-listing decisions.",
         steps: [
           {
             module: "Input Scope Guard",

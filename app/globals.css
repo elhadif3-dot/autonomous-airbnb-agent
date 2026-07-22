@@ -129,6 +129,16 @@ button {
   padding: 26px 0 48px;
 }
 
+.loadingListing {
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .agentDock {
   width: 100%;
   margin: 0;

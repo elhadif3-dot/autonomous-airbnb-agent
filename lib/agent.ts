@@ -35,7 +35,7 @@ import type {
 } from "@/lib/types";
 
 type Signal = {
-  type: "positive_highlight" | "accuracy_gap" | "insufficient_evidence";
+  type: "positive_highlight" | "accuracy_gap" | "guest_experience_detail" | "insufficient_evidence";
   topic: string;
   evidenceCount: number;
   primaryEvidenceCount: number;
@@ -67,12 +67,17 @@ type AgentState = {
 };
 
 const topicKeywords: Record<string, string[]> = {
+  review_alignment: ["improve", "gap", "gaps", "align", "experience", "guest", "review", "reviews", "end to end"],
   location: ["location", "walk", "walking", "metro", "tram", "near", "close", "central"],
   hills: ["hill", "hills", "steep", "walk up", "climb"],
+  stairs: ["stairs", "steps", "elevator", "lift"],
   noise: ["noise", "noisy", "loud", "quiet", "nightlife", "bar", "street"],
   wifi: ["wifi", "wi-fi", "internet", "remote", "work"],
   cleanliness: ["clean", "spotless", "dirty", "dust", "smell"],
   comfort: ["bed", "comfortable", "comfy", "sleep"],
+  temperature: ["hot", "warm", "cold", "air conditioning", "a/c", "ac", "heating"],
+  view: ["view", "views", "river", "terrace", "balcony"],
+  space: ["small", "tiny", "compact", "cramped"],
   nearby_highlights: ["restaurant", "park", "museum", "attraction", "cafe", "viewpoint", "nearby", "recommend"],
   restore_original: ["restore", "revert", "undo", "reset", "back to original", "previous version", "לא אהבתי", "חזור", "תחזיר", "בטל"]
 };
@@ -500,7 +505,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       }
 
       const reviews = await getReviewsForListing(state.listing.id);
-      const relevantReviews = searchRelevantReviews(reviews, state.intent, state.requireMoreEvidence ? 12 : 6);
+      const relevantReviews = searchRelevantReviews(reviews, state.intent, reviewRetrievalLimit(state));
       state.reviews = reviews;
       state.relevantReviews = relevantReviews;
       steps.push(step("Review RAG", "Retrieve Airbnb guest reviews for the selected listing.", JSON.stringify(actionRequest.tool_input), {
@@ -540,14 +545,14 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
     }
 
     case "detect_guest_signals": {
-      if (!state.listing || !state.relevantReviews) {
+      if (!state.listing || !state.reviews) {
         throw new Error("Cannot detect guest signals before listing reviews are retrieved.");
       }
 
       state.signals = detectSignals(
         state.listing,
         state.page?.currentDescription ?? state.listing.description,
-        state.relevantReviews,
+        state.reviews,
         state.relevantPlaces ?? [],
         state.intent
       );
@@ -724,11 +729,46 @@ function inferIntent(prompt: string): string[] {
     .filter(([, keywords]) => keywords.some((keyword) => normalized.includes(keyword)))
     .map(([topic]) => topic);
 
+  const broadReviewRequest =
+    /\b(end to end|autonomously review|all managed|improve|gap|gaps|guest reviews|reviews and nearby|חוויית|ביקורות|פער|פערים|תשפר|תערוך)\b/i.test(prompt);
+
+  if (broadReviewRequest) {
+    return Array.from(
+      new Set([
+        "review_alignment",
+        "location",
+        "hills",
+        "stairs",
+        "noise",
+        "wifi",
+        "cleanliness",
+        "comfort",
+        "temperature",
+        "view",
+        "space",
+        "nearby_highlights",
+        ...topics
+      ])
+    );
+  }
+
   if (topics.length > 0) {
     return topics;
   }
 
-  return ["location"];
+  return ["review_alignment", "location", "hills", "stairs", "noise", "wifi", "comfort", "temperature", "view"];
+}
+
+function reviewRetrievalLimit(state: AgentState): number {
+  if (state.requireMoreEvidence) {
+    return 24;
+  }
+
+  if (state.intent.includes("review_alignment")) {
+    return 18;
+  }
+
+  return 8;
 }
 
 function needsGooglePlaces(state: AgentState): boolean {
@@ -746,7 +786,16 @@ function extractClaims(listing: Listing, currentDescription: string): Record<str
     mentions_quiet: description.includes("quiet"),
     mentions_nightlife: description.includes("nightlife") || description.includes("entertainment"),
     mentions_hills: description.includes("hill") || description.includes("steep"),
+    mentions_stairs: description.includes("stairs") || description.includes("steps") || description.includes("elevator") || description.includes("lift"),
     mentions_wifi: description.includes("wifi") || listing.amenities.some((amenity) => amenity.toLowerCase().includes("wifi")),
+    mentions_temperature:
+      description.includes("warm") ||
+      description.includes("hot") ||
+      description.includes("air conditioning") ||
+      description.includes("heating"),
+    mentions_view: description.includes("view") || description.includes("river") || description.includes("terrace") || description.includes("balcony"),
+    mentions_cleanliness: description.includes("clean") || description.includes("spotless"),
+    mentions_comfort: description.includes("comfortable") || description.includes("comfy") || description.includes("bed"),
     mentions_nearby_attractions:
       description.includes("restaurant") ||
       description.includes("park") ||
@@ -798,6 +847,7 @@ function detectSignals(
   const signals: Signal[] = [];
   const reviewText = reviews.map((review) => review.comments.toLowerCase()).join(" ");
   const description = currentDescription.toLowerCase();
+  const hasBroadIntent = intent.includes("review_alignment");
 
   if (intent.includes("hills") || reviewText.includes("hill") || reviewText.includes("steep")) {
     const evidence = reviews
@@ -815,11 +865,28 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("noise") || reviewText.includes("noisy") || reviewText.includes("quiet")) {
+  if (intent.includes("stairs") || reviewText.includes("stairs") || reviewText.includes("steps")) {
     const evidence = reviews
-      .filter((review) => /noise|noisy|loud|quiet|street|night/i.test(review.comments))
+      .filter((review) => /stairs|steps|elevator|lift/i.test(review.comments))
       .map((review) => excerpt(review.comments));
-    if (evidence.length >= 2 && description.includes("quiet")) {
+    if (evidence.length >= 2 && !description.includes("stairs") && !description.includes("steps") && !description.includes("elevator")) {
+      signals.push({
+        type: "accuracy_gap",
+        topic: "Access and stairs expectations",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Add an expectation-setting note about stairs or access when guests repeatedly mention it."
+      });
+    }
+  }
+
+  if (intent.includes("noise") || /\b(noise|noisy|loud|nightlife|bar|bars)\b/i.test(reviewText)) {
+    const evidence = reviews
+      .filter((review) => /\b(noisy|loud|nightlife|bar|bars)\b|busy street|weekend nights/i.test(review.comments))
+      .filter((review) => !/\b(no issues with noise|not noisy|very quiet|quiet stay)\b/i.test(review.comments))
+      .map((review) => excerpt(review.comments));
+    if (evidence.length >= 2 && (description.includes("quiet") || hasBroadIntent)) {
       signals.push({
         type: "accuracy_gap",
         topic: "Noise expectations",
@@ -827,6 +894,107 @@ function detectSignals(
         primaryEvidenceCount: evidence.length,
         evidence,
         recommendation: "Soften quiet claims and set accurate expectations about the street environment."
+      });
+    }
+  }
+
+  if (intent.includes("temperature") || /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c/i.test(reviewText)) {
+    const evidence = reviews
+      .filter((review) => /\b(hot|warm|cold|heating|heater)\b|air conditioning|a\/c|\bac\b/i.test(review.comments))
+      .map((review) => excerpt(review.comments));
+    if (
+      evidence.length >= 2 &&
+      !description.includes("hot") &&
+      !description.includes("warm") &&
+      !description.includes("temperature")
+    ) {
+      signals.push({
+        type: "accuracy_gap",
+        topic: "Temperature expectations",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Add a careful expectation note when guests repeatedly mention room temperature."
+      });
+    }
+  }
+
+  if (intent.includes("space") || /small|tiny|compact|cramped/i.test(reviewText)) {
+    const evidence = reviews
+      .filter((review) => /small|tiny|compact|cramped/i.test(review.comments))
+      .map((review) => excerpt(review.comments));
+    if (evidence.length >= 2 && !description.includes("compact") && !description.includes("small")) {
+      signals.push({
+        type: "accuracy_gap",
+        topic: "Space expectations",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Add a concise expectation-setting note about the space being compact if guests repeatedly mention it."
+      });
+    }
+  }
+
+  if (intent.includes("location") || hasBroadIntent) {
+    const evidence = reviews
+      .filter((review) => /location|walk|walking|metro|tram|central|close|near/i.test(review.comments))
+      .map((review) => excerpt(review.comments));
+    if (evidence.length >= 3 && !description.includes("guests often mention") && !description.includes("guest location note")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-confirmed walkable location",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Add a review-backed location note instead of relying only on generic area wording."
+      });
+    }
+  }
+
+  if (intent.includes("view") || /view|views|river|terrace|balcony/i.test(reviewText)) {
+    const evidence = reviews
+      .filter((review) => /view|views|river|terrace|balcony/i.test(review.comments))
+      .map((review) => excerpt(review.comments));
+    if (evidence.length >= 2 && !description.includes("guest view note") && !description.includes("guests mention the view")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-mentioned view",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Add a guest-backed note about the view when it is repeatedly mentioned."
+      });
+    }
+  }
+
+  if (intent.includes("cleanliness") || /clean|spotless/i.test(reviewText)) {
+    const evidence = reviews
+      .filter((review) => /clean|spotless|well kept|tidy/i.test(review.comments))
+      .map((review) => excerpt(review.comments));
+    if (evidence.length >= 3 && !description.includes("guest cleanliness note") && !description.includes("guests repeatedly describe")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-confirmed cleanliness",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Add a modest cleanliness note backed by repeated guest reviews."
+      });
+    }
+  }
+
+  if (intent.includes("comfort") || /comfortable|comfy|bed/i.test(reviewText)) {
+    const evidence = reviews
+      .filter((review) => /comfortable|comfy|bed|sleep/i.test(review.comments))
+      .map((review) => excerpt(review.comments));
+    if (evidence.length >= 3 && !description.includes("guest comfort note") && !description.includes("comfortable stay")) {
+      signals.push({
+        type: "guest_experience_detail",
+        topic: "Guest-confirmed comfort",
+        evidenceCount: evidence.length,
+        primaryEvidenceCount: evidence.length,
+        evidence,
+        recommendation: "Add a restrained comfort note when guests repeatedly mention it."
       });
     }
   }
@@ -851,14 +1019,16 @@ function detectSignals(
   if (intent.includes("nearby_highlights") && places.length >= 3 && !description.includes("nearby highlights")) {
     const topPlaces = places.slice(0, 3).map((place) => place.placeName);
     const reviewSupport = reviews.filter((review) => /nearby|restaurant|park|cafe|attraction|location/i.test(review.comments));
-    signals.push({
-      type: "positive_highlight",
-      topic: "Nearby guest highlights",
-      evidenceCount: places.length + reviewSupport.length,
-      primaryEvidenceCount: reviewSupport.length,
-      evidence: [...reviewSupport.slice(0, 2).map((review) => excerpt(review.comments)), ...topPlaces],
-      recommendation: "Add a concise nearby highlights note based on guest location comments plus Google Places context."
-    });
+    if (reviewSupport.length >= 2) {
+      signals.push({
+        type: "positive_highlight",
+        topic: "Nearby guest highlights",
+        evidenceCount: places.length + reviewSupport.length,
+        primaryEvidenceCount: reviewSupport.length,
+        evidence: [...reviewSupport.slice(0, 2).map((review) => excerpt(review.comments)), ...topPlaces],
+        recommendation: "Add a concise nearby highlights note based on guest location comments plus Google Places context."
+      });
+    }
   }
 
   if (signals.length === 0) {
@@ -876,7 +1046,9 @@ function detectSignals(
 }
 
 function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
-  const editableSignals = signals.filter((signal) => signal.type !== "insufficient_evidence" && signal.primaryEvidenceCount >= 2);
+  const editableSignals = signals
+    .filter((signal) => signal.type !== "insufficient_evidence" && signal.primaryEvidenceCount >= 2)
+    .sort((a, b) => signalPriority(a) - signalPriority(b));
 
   if (editableSignals.length === 0) {
     const weakEditableSignals = signals.filter((signal) => signal.type !== "insufficient_evidence" && signal.primaryEvidenceCount > 0);
@@ -894,12 +1066,34 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
     return stopProposal(listing.id, "No strong, editable gap was found.");
   }
 
-  const additions = editableSignals.map((signal) => {
+  const selectedSignals = editableSignals.slice(0, 2);
+  const additions = selectedSignals.map((signal) => {
     if (signal.topic === "Historic Lisbon hills") {
       return "Guest note: this historic Lisbon area is rewarding to explore on foot, and some nearby streets include steep walks.";
     }
+    if (signal.topic === "Access and stairs expectations") {
+      return "Guest expectation note: guests mention stairs or stepped access, so this stay is best for guests comfortable with Lisbon-style building access.";
+    }
     if (signal.topic === "Noise expectations") {
       return "Guest note: the apartment is in an active Lisbon neighborhood, so occasional street activity may be heard.";
+    }
+    if (signal.topic === "Temperature expectations") {
+      return "Guest expectation note: some guests mention the room can feel warm in hotter periods, so expectations should be set accordingly.";
+    }
+    if (signal.topic === "Space expectations") {
+      return "Guest expectation note: guests describe the space as compact, making it best suited for travelers who value location and efficiency.";
+    }
+    if (signal.topic === "Guest-confirmed walkable location") {
+      return "Guest location note: reviews repeatedly highlight the central, walkable Lisbon location and easy access to nearby sights or transport.";
+    }
+    if (signal.topic === "Guest-mentioned view") {
+      return "Guest view note: guests repeatedly mention the view as a memorable part of the stay.";
+    }
+    if (signal.topic === "Guest-confirmed cleanliness") {
+      return "Guest cleanliness note: reviews repeatedly describe the place as clean and well kept.";
+    }
+    if (signal.topic === "Guest-confirmed comfort") {
+      return "Guest comfort note: reviews repeatedly mention a comfortable stay and good sleep experience.";
     }
     if (signal.topic === "Remote-work readiness") {
       return "Work-friendly note: guests mention the setup works well for short remote-work stays.";
@@ -916,8 +1110,24 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
     target_fields: ["description"],
     listing_id: listing.id,
     proposed_description_addition: additions.join(" "),
-    evidence_topics: editableSignals.map((signal) => signal.topic)
+    evidence_topics: selectedSignals.map((signal) => signal.topic)
   };
+}
+
+function signalPriority(signal: Signal): number {
+  if (signal.type === "accuracy_gap") {
+    return 0;
+  }
+
+  if (signal.type === "guest_experience_detail") {
+    return 1;
+  }
+
+  if (signal.topic === "Nearby guest highlights") {
+    return 3;
+  }
+
+  return 2;
 }
 
 function supervise(proposal: EditProposal, signals: Signal[], guardrailsPassed: boolean): SupervisorOutput {

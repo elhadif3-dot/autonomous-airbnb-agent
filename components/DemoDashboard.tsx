@@ -35,8 +35,16 @@ type DemoListing = Listing & {
   recentReviews: Review[];
 };
 
+type ListingOption = Pick<
+  Listing,
+  "id" | "name" | "neighbourhood" | "numberOfReviews" | "nearbyPlacesCount" | "reviewScore"
+>;
+
 type Props = {
-  listings: DemoListing[];
+  initialListings: DemoListing[];
+  listingOptions: ListingOption[];
+  managedCount: number;
+  totalDatasetListings: number;
 };
 
 type TraceSummary = {
@@ -55,18 +63,23 @@ function promptExamples(listingName: string, managedCount: number) {
   return [
     {
       label: "Improve end to end",
-      hint: "Find evidence, edit the page, explain why",
-      prompt: `Hi, I manage several Airbnb listings in Lisbon. Please handle "${listingName}" end to end: compare the current page with guest reviews and nearby context, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.`
+      hint: "Find review gaps, edit the page, explain why",
+      prompt: `Hi, I manage several Airbnb listings in Lisbon. Please handle "${listingName}" end to end: compare the current page with guest reviews first, use nearby context only when useful, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.`
     },
     {
-      label: "Add missing nearby value",
-      hint: "Turn positive location evidence into page text",
-      prompt: `For "${listingName}", find positive nearby highlights that are missing from the listing page. Use Airbnb reviews as primary evidence and Google Places only as supporting context. If approved, add concise guest-facing text to the simulated page.`
+      label: "Use guest review gaps",
+      hint: "Add or correct text from guest experience",
+      prompt: `For "${listingName}", focus on gaps between the listing description and actual guest reviews. Look for repeated signals about stairs, hills, temperature, noise, comfort, cleanliness, view, Wi-Fi, or location. If the evidence is strong, edit the simulated page and explain the improvement.`
     },
     {
       label: "Fix expectation mismatch",
-      hint: "Correct overpromising only when evidence is strong",
-      prompt: `Review "${listingName}" for a gap between what the page promises and what guests actually report, especially quietness, location convenience, hills, Wi-Fi, or comfort. If the evidence is strong, edit the simulated listing page and explain the benefit.`
+      hint: "Correct overpromising or vague wording",
+      prompt: `Review "${listingName}" for a mismatch between what the page promises and what guests actually report, especially quietness, access, stairs, hills, heat, Wi-Fi, or comfort. If the evidence is strong, make a narrow expectation-setting edit.`
+    },
+    {
+      label: "Add nearby value",
+      hint: "Use Places only as supporting context",
+      prompt: `For "${listingName}", find positive nearby value missing from the page. Use Airbnb location reviews as primary evidence and Google Places only as supporting context. If approved, add concise guest-facing text to the simulated page.`
     },
     {
       label: "Undo last page edit",
@@ -76,28 +89,50 @@ function promptExamples(listingName: string, managedCount: number) {
     {
       label: "Improve all managed listings",
       hint: `Review ${managedCount} evidence-rich listings`,
-      prompt: `I manage ${managedCount} Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings, update only pages with strong evidence-backed improvements, skip listings where evidence is weak, and give me a per-listing audit summary.`
+      prompt: `I manage ${managedCount} Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings end to end. Prioritize gaps between guest reviews and current page descriptions; use Google Places only as supporting context; update only pages with strong evidence-backed improvements; and give me a per-listing audit summary.`
     }
   ];
 }
 
-export function DemoDashboard({ listings }: Props) {
-  const [selectedId, setSelectedId] = useState(listings[0]?.id ?? "");
+export function DemoDashboard({ initialListings, listingOptions, managedCount, totalDatasetListings }: Props) {
+  const [listings, setListings] = useState(initialListings);
+  const [selectedId, setSelectedId] = useState(initialListings[0]?.id ?? listingOptions[0]?.id ?? "");
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isLoadingListing, setIsLoadingListing] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
   const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
 
   const selectedListing = useMemo(
-    () => listings.find((listing) => listing.id === selectedId) ?? listings[0],
+    () => listings.find((listing) => listing.id === selectedId),
     [listings, selectedId]
   );
 
   const examples = useMemo(
-    () => promptExamples(selectedListing?.name ?? "this listing", listings.length),
-    [selectedListing?.name, listings.length]
+    () => promptExamples(selectedListing?.name ?? "this listing", managedCount),
+    [selectedListing?.name, managedCount]
   );
+
+  async function selectListing(id: string) {
+    setSelectedId(id);
+    setResult(null);
+
+    if (listings.some((listing) => listing.id === id)) {
+      return;
+    }
+
+    setIsLoadingListing(true);
+    try {
+      const response = await fetch(`/api/listings?id=${encodeURIComponent(id)}`);
+      const payload = (await response.json()) as { status: string; listing?: DemoListing; error?: string };
+      if (payload.status === "ok" && payload.listing) {
+        setListings((current) => [...current, payload.listing!]);
+      }
+    } finally {
+      setIsLoadingListing(false);
+    }
+  }
 
   async function runAgent() {
     if (!selectedListing) {
@@ -106,7 +141,7 @@ export function DemoDashboard({ listings }: Props) {
 
     setIsRunning(true);
     setResult(null);
-    const portfolioPageDescriptions = listings.reduce<Record<string, string>>((values, listing) => {
+    const portfolioPageDescriptions = initialListings.reduce<Record<string, string>>((values, listing) => {
       values[listing.id] = simulatedDescriptions[listing.id] ?? listing.description;
       return values;
     }, {});
@@ -166,7 +201,19 @@ export function DemoDashboard({ listings }: Props) {
   }
 
   if (!selectedListing) {
-    return <main className="airbnbPage">No listings available.</main>;
+    return (
+      <div className="airbnbPage">
+        <Header
+          listingOptions={listingOptions}
+          selectedId={selectedId}
+          onSelect={selectListing}
+          totalDatasetListings={totalDatasetListings}
+        />
+        <main className="listingShell">
+          <div className="loadingListing">{isLoadingListing ? "Loading selected listing..." : "No listing available."}</div>
+        </main>
+      </div>
+    );
   }
 
   const currentDescription = simulatedDescriptions[selectedListing.id] ?? selectedListing.description;
@@ -174,12 +221,10 @@ export function DemoDashboard({ listings }: Props) {
   return (
     <div className="airbnbPage">
       <Header
-        listings={listings}
+        listingOptions={listingOptions}
         selectedId={selectedId}
-        onSelect={(id) => {
-          setSelectedId(id);
-          setResult(null);
-        }}
+        onSelect={selectListing}
+        totalDatasetListings={totalDatasetListings}
       />
 
       <main className="listingShell">
@@ -245,7 +290,7 @@ export function DemoDashboard({ listings }: Props) {
                 <div>
                   <h2>Guest reviews</h2>
                   <p>
-                    {selectedListing.numberOfReviews} total reviews in the dataset. Reviews are read-only evidence and cannot be edited by the agent.
+                    {selectedListing.numberOfReviews} total reviews reported in the listing data. {selectedListing.recentReviews.length} review texts are loaded in this prepared RAG sample and remain read-only.
                   </p>
                 </div>
                 <Star size={22} />
@@ -286,13 +331,15 @@ export function DemoDashboard({ listings }: Props) {
 }
 
 function Header({
-  listings,
+  listingOptions,
   selectedId,
-  onSelect
+  onSelect,
+  totalDatasetListings
 }: {
-  listings: DemoListing[];
+  listingOptions: ListingOption[];
   selectedId: string;
-  onSelect: (id: string) => void;
+  onSelect: (id: string) => void | Promise<void>;
+  totalDatasetListings: number;
 }) {
   return (
     <header className="airbnbHeader">
@@ -301,15 +348,15 @@ function Header({
         <span>airbnb</span>
       </div>
       <div className="searchPill">
-        <select value={selectedId} onChange={(event) => onSelect(event.target.value)} aria-label="Choose managed listing">
-          {listings.map((listing) => (
+        <select value={selectedId} onChange={(event) => void onSelect(event.target.value)} aria-label="Choose listing from dataset">
+          {listingOptions.map((listing) => (
             <option key={listing.id} value={listing.id}>
-              {listing.name}
+              {listing.name} | {listing.numberOfReviews} reviews
             </option>
           ))}
         </select>
         <span>Lisbon</span>
-        <span>Managed listing</span>
+        <span>{totalDatasetListings.toLocaleString()} dataset listings</span>
         <button type="button" aria-label="Search">
           <Search size={17} />
         </button>
@@ -625,7 +672,7 @@ function ReviewList({
   return (
     <>
       <div className="reviewMetaLine">
-        Showing {visible.length} of {totalReviews} reviews. More reviews are available to the agent through retrieval.
+        Showing {visible.length} of {reviews.length} loaded review texts. Listing data reports {totalReviews} total reviews.
       </div>
       <div className="reviewGrid">
         {visible.map((review) => (

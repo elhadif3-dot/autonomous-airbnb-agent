@@ -10,6 +10,7 @@ The project uses prepared offline data only:
 
 No live Airbnb account is accessed, no scraping is performed, and all page updates are applied only inside the demo environment.
 The listing page initially renders from the prepared Airbnb dataset. Agent edits are session-level simulated page updates; refreshing/re-entering the app starts again from the dataset state.
+The UI exposes the full prepared listing catalog for selection. The "all managed listings" demo action intentionally runs on an evidence-rich manager portfolio so the end-to-end trace stays inspectable and fast.
 
 Live LLM calls are disabled by default. The code runs in mock mode unless token usage is explicitly approved and enabled.
 Every request first passes a deterministic scope guard. Out-of-scope requests stop before LLM, Review RAG, Google Places, or page-edit tools are used.
@@ -23,7 +24,7 @@ The agent follows a ReAct-style loop:
 Actual page edits are executed only after `Supervisor / Control Agent` approval.
 Approved edits update the simulated listing page state and create an audit-log entry.
 Manager prompts can also ask the agent to restore the simulated page to the original dataset text; that restore path uses a different action trace and still requires Supervisor approval.
-Portfolio prompts can ask the agent to review all managed demo listings. The runtime selects the evidence-rich manager portfolio, runs each listing independently, updates only approved simulated pages, and returns a per-listing audit summary.
+Portfolio prompts can ask the agent to review all managed demo listings. The runtime selects the evidence-rich manager portfolio, runs each listing independently, prioritizes guest-review gaps before nearby highlights, updates only approved simulated pages, and returns a per-listing audit summary.
 
 ## Required API
 
