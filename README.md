@@ -14,6 +14,7 @@ The UI exposes the full prepared listing catalog for selection. The recommended 
 
 Live LLM calls are disabled by default. The code runs in mock mode unless token usage is explicitly approved and enabled.
 Every request first passes a deterministic scope guard. Out-of-scope requests stop before LLM, Review RAG, Google Places, or page-edit tools are used.
+Review RAG uses adaptive, time-boxed topic expansion: the agent can run multiple focused review searches, merge unique evidence, and stop when it has enough support or reaches the configured review-search budget.
 
 ## Architecture
 
@@ -26,6 +27,7 @@ Approved edits update the simulated listing page state and create an audit-log e
 Manager prompts can also ask the agent to restore the simulated page to the original dataset text; that restore path uses a different action trace and still requires Supervisor approval.
 Manager insight prompts can ask what fixable property or operations issues guests mention. That action returns recommendations only; it does not edit the listing page and does not require live Airbnb access.
 Evidence-only prompts can ask for more review examples about a suspected issue. That action searches the review index and returns a read-only evidence report without Google Places, Supervisor approval, or page edits.
+Nearby-place prompts may specify a distance such as `within about 1 km`; Google Places results are filtered to that radius and remain supporting context rather than primary guest-experience proof.
 
 ## Required API
 

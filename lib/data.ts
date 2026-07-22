@@ -145,7 +145,7 @@ export async function getReviewsForListing(listingId: string, query?: string, li
   return result.reviews;
 }
 
-export async function getPlacesNearListing(listing: Listing, limit = 8): Promise<Place[]> {
+export async function getPlacesNearListing(listing: Listing, limit = 8, radiusKm = 2): Promise<Place[]> {
   if (!placesCache) {
     const csv = await readFile(path.join(root, "lisbon_google_places_filtered.csv"), "utf8");
     const objects = rowsToObjects(parseCsv(csv));
@@ -167,7 +167,7 @@ export async function getPlacesNearListing(listing: Listing, limit = 8): Promise
       ...place,
       distanceKm: distanceKm(listing.latitude, listing.longitude, place.latitude, place.longitude)
     }))
-    .filter((place) => (place.distanceKm ?? Infinity) <= 2)
+    .filter((place) => (place.distanceKm ?? Infinity) <= radiusKm)
     .sort((a, b) => {
       const scoreA = (a.rating ?? 0) * Math.log10(a.numberOfReviews + 10);
       const scoreB = (b.rating ?? 0) * Math.log10(b.numberOfReviews + 10);

@@ -60,6 +60,7 @@ type AgentState = {
   reviews?: Review[];
   reviewSource?: "pinecone" | "csv_fallback";
   indexedReviewTextCount?: number;
+  reviewSearchStats?: ReviewSearchStats;
   relevantReviews?: Review[];
   places?: Place[];
   relevantPlaces?: Place[];
@@ -73,6 +74,18 @@ type AgentState = {
   reviseCount: number;
   requireMoreEvidence: boolean;
   stopReason?: string;
+};
+
+type ReviewSearchStats = {
+  strategy: string;
+  queriesRun: number;
+  queryTopics: string[];
+  topKPerQuery: number;
+  targetUniqueReviews: number;
+  maxUniqueReviews: number;
+  timeBudgetMs: number;
+  elapsedMs: number;
+  stopReason: string;
 };
 
 const topicKeywords: Record<string, string[]> = {
@@ -358,7 +371,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
   if (state.listing && needsEvidenceReport(state) && !state.reviews && proposed.next_action !== "search_reviews") {
     return action(
       "search_reviews",
-      { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state), runtime_override_from: proposed.next_action },
+      reviewSearchToolInput(state, { runtime_override_from: proposed.next_action }),
       "The manager asked for more review evidence only, so the agent should retrieve focused guest reviews before producing a report.",
       "Evidence-only request needs review retrieval."
     );
@@ -367,7 +380,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
   if (state.claims && !state.reviews && proposed.next_action !== "search_reviews") {
     return action(
       "search_reviews",
-      { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state), runtime_override_from: proposed.next_action },
+      reviewSearchToolInput(state, { runtime_override_from: proposed.next_action }),
       "Airbnb guest reviews are the primary evidence source before drafting any page edit.",
       "Review evidence is missing."
     );
@@ -382,7 +395,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
   ) {
     return action(
       "get_google_places",
-      { listing_id: state.listingId, radius_km: 2, runtime_override_from: proposed.next_action },
+      { listing_id: state.listingId, radius_km: requestedPlacesRadiusKm(state.prompt), runtime_override_from: proposed.next_action },
       "This request needs nearby Lisbon context, so Google Places context must be observed before detecting final signals.",
       "Google Places context is missing."
     );
@@ -495,7 +508,7 @@ function chooseNextAction(state: AgentState): AgentNextAction {
     if (!state.reviews) {
       return action(
         "search_reviews",
-        { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state) },
+        reviewSearchToolInput(state),
         "The manager asked for more evidence, so the agent should retrieve focused Airbnb review examples rather than edit the page.",
         "Review evidence is missing."
       );
@@ -518,11 +531,11 @@ function chooseNextAction(state: AgentState): AgentNextAction {
   }
 
   if (!state.reviews) {
-    return action("search_reviews", { listing_id: state.listingId, topics: state.intent, top_k: reviewRetrievalLimit(state) }, "Guest reviews are the primary evidence source.", "Review evidence is missing.");
+    return action("search_reviews", reviewSearchToolInput(state), "Guest reviews are the primary evidence source.", "Review evidence is missing.");
   }
 
   if (needsGooglePlaces(state) && !state.places) {
-    return action("get_google_places", { listing_id: state.listingId, radius_km: 2 }, "Location or nearby-context intent requires environmental context.", "Google Places context is missing.");
+    return action("get_google_places", { listing_id: state.listingId, radius_km: requestedPlacesRadiusKm(state.prompt) }, "Location or nearby-context intent requires environmental context.", "Google Places context is missing.");
   }
 
   if (!state.signals) {
@@ -610,18 +623,14 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot search reviews before listing data is loaded.");
       }
 
-      const retrievalLimit = Math.max(reviewRetrievalLimit(state), state.requireMoreEvidence ? 48 : 12);
-      const reviewResult = await getReviewSearchResult(
-        state.listing.id,
-        reviewQueryForIntent(state.listing, state.intent),
-        retrievalLimit
-      );
+      const reviewResult = await runAdaptiveReviewSearch(state);
       const reviews = reviewResult.reviews;
-      const relevantReviews = searchRelevantReviews(reviews, state.intent, reviewRetrievalLimit(state));
+      const relevantReviews = searchRelevantReviews(reviews, state.intent, Math.min(reviews.length, 24));
       const indexedReviewTextCount = await getReviewTextCountForListing(state.listing.id);
       state.reviews = reviews;
       state.reviewSource = reviewResult.source;
       state.indexedReviewTextCount = indexedReviewTextCount;
+      state.reviewSearchStats = reviewResult.stats;
       state.relevantReviews = relevantReviews;
       steps.push(step("Review RAG", "Retrieve Airbnb guest reviews for the selected listing.", JSON.stringify(actionRequest.tool_input), {
         listing_id: state.listing.id,
@@ -629,7 +638,15 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         indexed_review_texts_available: indexedReviewTextCount,
         retrieved_review_count: reviews.length,
         relevant_review_count: relevantReviews.length,
-        top_k_requested: retrievalLimit,
+        search_strategy: reviewResult.stats.strategy,
+        queries_run: reviewResult.stats.queriesRun,
+        query_topics: reviewResult.stats.queryTopics,
+        top_k_per_query: reviewResult.stats.topKPerQuery,
+        target_unique_reviews: reviewResult.stats.targetUniqueReviews,
+        max_unique_reviews: reviewResult.stats.maxUniqueReviews,
+        time_budget_ms: reviewResult.stats.timeBudgetMs,
+        elapsed_ms: reviewResult.stats.elapsedMs,
+        stop_reason: reviewResult.stats.stopReason,
         total_reviews_available: indexedReviewTextCount,
         retrieved_reviews: relevantReviews.map((review) => ({
           review_id: review.id,
@@ -639,8 +656,8 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         })),
         retrieval_note:
           reviewResult.source === "pinecone"
-            ? "Pinecone searches the full review namespace filtered by listing_id, then returns the most relevant reviews for the current action."
-            : "The local CSV fallback filters all prepared review texts by listing_id, then returns a bounded relevant sample for the current action."
+            ? "Pinecone searched the full review namespace with adaptive topic queries filtered by listing_id, then the agent merged unique review evidence within the run budget."
+            : "The local CSV fallback filtered all prepared review texts by listing_id, then returned a bounded relevant sample for the current action."
       }));
       return true;
     }
@@ -650,12 +667,14 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot retrieve places before listing data is loaded.");
       }
 
-      const places = await getPlacesNearListing(state.listing, 40);
+      const radiusKm = requestedPlacesRadiusKm(state.prompt);
+      const places = await getPlacesNearListing(state.listing, 40, radiusKm);
       const relevantPlaces = filterRelevantPlaces(places, state.intent);
       state.places = places;
       state.relevantPlaces = relevantPlaces;
       steps.push(step("Google Places Context", "Retrieve nearby Google Places context when relevant.", JSON.stringify(actionRequest.tool_input), {
         listing_id: state.listing.id,
+        requested_radius_km: radiusKm,
         nearby_places: relevantPlaces.map((place) => ({
           name: place.placeName,
           category: place.category,
@@ -972,22 +991,6 @@ function isEvidenceOnlyPrompt(prompt: string): boolean {
     /עוד\s+(עדויות|ראיות|דוגמאות)|תמצא\s+עוד|הוכחות/i.test(prompt);
 }
 
-function reviewRetrievalLimit(state: AgentState): number {
-  if (state.requireMoreEvidence) {
-    return 48;
-  }
-
-  if (needsEvidenceReport(state)) {
-    return 48;
-  }
-
-  if (state.intent.includes("review_alignment")) {
-    return 36;
-  }
-
-  return 16;
-}
-
 function reviewQueryForIntent(listing: Listing, intent: string[]): string {
   const topics = intent
     .filter((topic) => !["review_alignment", "restore_original", "evidence_search"].includes(topic))
@@ -1014,12 +1017,36 @@ function needsGooglePlaces(state: AgentState): boolean {
   );
 }
 
+function requestedPlacesRadiusKm(prompt: string): number {
+  const match = prompt.match(/\b(?:within|inside|radius|under|up to|עד|רדיוס)\s*(?:about|around|בערך)?\s*(\d+(?:\.\d+)?)\s*(?:km|kilometers?|קמ|ק״מ)\b/i) ||
+    prompt.match(/\b(\d+(?:\.\d+)?)\s*(?:km|kilometers?|קמ|ק״מ)\b/i);
+  const parsed = match?.[1] ? Number(match[1]) : 2;
+  if (!Number.isFinite(parsed)) {
+    return 2;
+  }
+
+  return Math.min(Math.max(parsed, 0.2), 2);
+}
+
 function needsManagerRecommendations(state: AgentState): boolean {
   return state.intent.includes("property_fixes");
 }
 
 function needsEvidenceReport(state: AgentState): boolean {
   return state.intent.includes("evidence_search");
+}
+
+function reviewSearchToolInput(state: AgentState, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  const plan = reviewSearchPlan(state);
+  return {
+    listing_id: state.listingId,
+    topics: state.intent,
+    search_mode: plan.strategy,
+    time_budget_ms: plan.timeBudgetMs,
+    target_unique_reviews: plan.targetUniqueReviews,
+    max_unique_reviews: plan.maxUniqueReviews,
+    ...extra
+  };
 }
 
 function extractClaims(listing: Listing, currentDescription: string): Record<string, unknown> {
@@ -1046,6 +1073,182 @@ function extractClaims(listing: Listing, currentDescription: string): Record<str
       description.includes("nearby highlights"),
     amenities: listing.amenities.slice(0, 8)
   };
+}
+
+async function runAdaptiveReviewSearch(
+  state: AgentState
+): Promise<{ reviews: Review[]; source: "pinecone" | "csv_fallback"; stats: ReviewSearchStats }> {
+  if (!state.listing) {
+    throw new Error("Cannot run adaptive review search before listing data is loaded.");
+  }
+
+  const plan = reviewSearchPlan(state);
+  const start = Date.now();
+  const byKey = new Map<string, Review>();
+  let source: "pinecone" | "csv_fallback" = "pinecone";
+  let queriesRun = 0;
+  let stopReason = "completed_all_planned_queries";
+
+  for (const focus of plan.focuses) {
+    if (Date.now() - start >= plan.timeBudgetMs) {
+      stopReason = "time_budget_reached";
+      break;
+    }
+
+    queriesRun += 1;
+    const result = await getReviewSearchResult(state.listing.id, focus.query, plan.topKPerQuery);
+    source = result.source;
+
+    for (const review of result.reviews) {
+      byKey.set(review.id || `${review.listingId}:${review.comments.slice(0, 80)}`, review);
+      if (byKey.size >= plan.maxUniqueReviews) {
+        break;
+      }
+    }
+
+    if (source === "csv_fallback") {
+      stopReason = "csv_fallback_single_pass";
+      break;
+    }
+
+    if (byKey.size >= plan.targetUniqueReviews) {
+      stopReason = "target_unique_reviews_reached";
+      break;
+    }
+
+    if (byKey.size >= plan.maxUniqueReviews) {
+      stopReason = "max_unique_reviews_reached";
+      break;
+    }
+  }
+
+  const reviews = [...byKey.values()].slice(0, plan.maxUniqueReviews);
+
+  return {
+    reviews,
+    source,
+    stats: {
+      strategy: plan.strategy,
+      queriesRun,
+      queryTopics: plan.focuses.slice(0, queriesRun).map((focus) => focus.label),
+      topKPerQuery: plan.topKPerQuery,
+      targetUniqueReviews: plan.targetUniqueReviews,
+      maxUniqueReviews: plan.maxUniqueReviews,
+      timeBudgetMs: plan.timeBudgetMs,
+      elapsedMs: Date.now() - start,
+      stopReason
+    }
+  };
+}
+
+type ReviewSearchPlan = {
+  strategy: string;
+  focuses: Array<{ label: string; query: string }>;
+  topKPerQuery: number;
+  targetUniqueReviews: number;
+  maxUniqueReviews: number;
+  timeBudgetMs: number;
+};
+
+function reviewSearchPlan(state: AgentState): ReviewSearchPlan {
+  const listing = state.listing;
+  const name = listing?.name ?? "the selected listing";
+  const id = state.listingId;
+  const base = `Lisbon Airbnb guest reviews for listing ${id}: ${name}.`;
+  const timeBudgetMs = Number(process.env.REVIEW_RAG_TIME_BUDGET_MS ?? 90000);
+  const focus = (label: string, query: string) => ({
+    label,
+    query: `${base} ${query} Prefer concrete guest experience details over generic praise.`
+  });
+
+  if (needsEvidenceReport(state)) {
+    const topic = evidenceReportTopic(state.intent, state.prompt);
+    const topicKeywords = evidenceSearchQueryText(state.intent, state.prompt);
+    return {
+      strategy: "adaptive_time_boxed_evidence_report",
+      focuses: [
+        focus(topic, `Find direct review examples about ${topicKeywords}.`),
+        focus(`${topic} complaints`, `Find negative or mixed guest comments about ${topicKeywords}.`),
+        focus(`${topic} practical impact`, `Find reviews that mention how ${topicKeywords} affected work, comfort, check-in, or stay quality.`)
+      ],
+      topKPerQuery: 48,
+      targetUniqueReviews: 96,
+      maxUniqueReviews: 120,
+      timeBudgetMs
+    };
+  }
+
+  if (needsManagerRecommendations(state)) {
+    return {
+      strategy: "adaptive_time_boxed_manager_insights",
+      focuses: [
+        focus("fixable operational issues", "Find repeated fixable complaints about Wi-Fi, noise, temperature, access, cleanliness, sleep comfort, check-in, or space."),
+        focus("guest friction", "Find concrete guest friction, maintenance issues, missing basics, or avoidable operational problems."),
+        focus("review quality opportunities", "Find issues that could affect ratings, booking confidence, or guest satisfaction.")
+      ],
+      topKPerQuery: 40,
+      targetUniqueReviews: 90,
+      maxUniqueReviews: 120,
+      timeBudgetMs
+    };
+  }
+
+  if (state.intent.includes("nearby_highlights") && !state.intent.includes("review_alignment")) {
+    return {
+      strategy: "adaptive_time_boxed_nearby_support",
+      focuses: [
+        focus("nearby value", "Find reviews about walkable location, nearby restaurants, cafes, parks, attractions, transit, and useful local options."),
+        focus("location selling points", "Find guest comments that explain why the surrounding Lisbon area improves the stay.")
+      ],
+      topKPerQuery: 40,
+      targetUniqueReviews: 72,
+      maxUniqueReviews: 96,
+      timeBudgetMs
+    };
+  }
+
+  if (state.intent.includes("review_alignment")) {
+    return {
+      strategy: "adaptive_time_boxed_end_to_end_alignment",
+      focuses: [
+        focus("repeated guest experience signals", "Find repeated guest experience signals across location, noise, access, temperature, comfort, cleanliness, Wi-Fi, view, and space."),
+        focus("expectation mismatches", "Find comments that show mismatch between listing expectations and guest reality, especially noise, stairs, hills, heat, room size, Wi-Fi, or comfort."),
+        focus("guest-confirmed strengths", "Find repeated positive strengths that should improve listing copy: location, walkability, cleanliness, view, comfort, and convenience."),
+        focus("nearby and location support", "Find review support for nearby restaurants, attractions, cafes, transit, parks, and walkable Lisbon context.")
+      ],
+      topKPerQuery: 40,
+      targetUniqueReviews: 120,
+      maxUniqueReviews: 140,
+      timeBudgetMs
+    };
+  }
+
+  return {
+    strategy: "adaptive_time_boxed_focused_review_search",
+    focuses: [
+      focus("focused topic search", `Find review evidence about ${state.intent.join(", ") || "the requested topic"}.`),
+      focus("supporting examples", "Find concrete examples for the requested guest-review topic.")
+    ],
+    topKPerQuery: 32,
+    targetUniqueReviews: 64,
+    maxUniqueReviews: 80,
+    timeBudgetMs
+  };
+}
+
+function evidenceSearchQueryText(intent: string[], prompt: string): string {
+  if (intent.includes("wifi") || /wi-?fi|internet|connection|remote.?work/i.test(prompt)) {
+    return "Wi-Fi reliability, internet connection, router, and remote-work experience";
+  }
+  if (intent.includes("noise")) return "noise, loud street activity, bars, nightlife, and sleep disturbance";
+  if (intent.includes("temperature")) return "temperature comfort, heat, cold, heating, air conditioning, and ventilation";
+  if (intent.includes("stairs")) return "stairs, steps, elevator, lift, luggage access, and arrival access";
+  if (intent.includes("hills")) return "steep streets, hills, walking effort, and luggage movement";
+  if (intent.includes("space")) return "small room, compact space, cramped feeling, and storage";
+  if (intent.includes("cleanliness")) return "cleanliness, dust, smell, tidy condition, and cleaning consistency";
+  if (intent.includes("comfort")) return "bed comfort, mattress, pillows, sleep quality, and general comfort";
+  if (intent.includes("location")) return "location, walkability, transit, restaurants, nearby sights, and convenience";
+  return "the requested guest-review issue";
 }
 
 function searchRelevantReviews(reviews: Review[], intent: string[], topK: number): Review[] {

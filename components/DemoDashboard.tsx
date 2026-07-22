@@ -68,19 +68,14 @@ function promptExamples(listingName: string) {
       prompt: `Hi, I manage several Airbnb listings in Lisbon. Please handle "${listingName}" end to end: compare the current page with guest reviews first, use nearby context only when useful, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.`
     },
     {
-      label: "Use guest review gaps",
-      hint: "Add or correct text from guest experience",
-      prompt: `For "${listingName}", focus on gaps between the listing description and actual guest reviews. Look for repeated signals about stairs, hills, temperature, noise, comfort, cleanliness, view, Wi-Fi, or location. If the evidence is strong, edit the simulated page and explain the improvement.`
+      label: "Review gaps only",
+      hint: "Use guest experience before editing",
+      prompt: `For "${listingName}", focus only on gaps between the current page and guest reviews. Decide which review-backed gap matters most for booking expectations, edit the simulated description only if the evidence is strong, and explain why that change improves the page.`
     },
     {
-      label: "Fix expectation mismatch",
-      hint: "Correct overpromising or vague wording",
-      prompt: `Review "${listingName}" for a mismatch between what the page promises and what guests actually report, especially quietness, access, stairs, hills, heat, Wi-Fi, or comfort. If the evidence is strong, make a narrow expectation-setting edit.`
-    },
-    {
-      label: "Add nearby value",
-      hint: "Use Places only as supporting context",
-      prompt: `For "${listingName}", find positive nearby value missing from the page. Use Airbnb location reviews as primary evidence and Google Places only as supporting context. If approved, add concise guest-facing text to the simulated page.`
+      label: "Nearby within 1 km",
+      hint: "Names, ratings, reviews, distance",
+      prompt: `For "${listingName}", focus only on nearby guest value within about 1 km. Use Airbnb location reviews as the primary evidence and Google Places only for supporting names, ratings, Google review counts, and approximate distance. Edit the simulated description only if the nearby value is useful and evidence-backed.`
     },
     {
       label: "Find property fixes",
@@ -153,7 +148,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     }, {});
 
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 90000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 130000);
 
     try {
       const response = await fetch("/api/execute", {
@@ -202,7 +197,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       setResult({
         status: "error",
         error: timedOut
-          ? "The agent request took more than 90 seconds and was stopped in the demo UI. Try a single listing request or rerun after the current deployment is ready."
+          ? "The agent request took more than 130 seconds and was stopped in the demo UI. Try a narrower single-listing request or reduce the requested evidence radius."
           : error instanceof Error
             ? error.message
             : "The agent request failed before a response was received.",
@@ -938,10 +933,15 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
     const indexedCount = numberValue(response.indexed_review_texts_available) ?? numberValue(response.total_reviews_available);
     const retrievedCount = numberValue(response.retrieved_review_count);
     const source = stringValue(response.source);
+    const queriesRun = numberValue(response.queries_run);
+    const strategy = stringValue(response.search_strategy);
+    const elapsedMs = numberValue(response.elapsed_ms);
+    const stopReason = stringValue(response.stop_reason);
     return {
       title: "Retrieved guest review evidence",
-      status: `${response.retrieved_reviews.length} relevant reviews`,
-      observation: `${retrievedCount ?? response.retrieved_reviews.length} reviews were retrieved from ${source ?? "Review RAG"} for this action. The full read-only index has ${indexedCount ?? "many"} review texts for this listing.`
+      status: `${retrievedCount ?? response.retrieved_reviews.length} retrieved reviews`,
+      rationale: strategy ? `Search mode: ${strategy}${queriesRun ? `, ${queriesRun} adaptive queries` : ""}.` : undefined,
+      observation: `${retrievedCount ?? response.retrieved_reviews.length} reviews were retrieved from ${source ?? "Review RAG"} for this action in ${elapsedMs ?? "a bounded"} ms. Stop reason: ${stopReason ?? "budgeted search complete"}. The full read-only index has ${indexedCount ?? "many"} review texts for this listing.`
     };
   }
 

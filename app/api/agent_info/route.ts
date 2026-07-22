@@ -23,7 +23,13 @@ export function GET() {
             },
             response: {
               next_action: "search_reviews",
-              tool_input: { listing_id: "176153", topics: ["review_alignment", "stairs", "temperature"], top_k: 36 },
+              tool_input: {
+                listing_id: "176153",
+                topics: ["review_alignment", "stairs", "temperature"],
+                search_mode: "adaptive_time_boxed_end_to_end_alignment",
+                time_budget_ms: 90000,
+                target_unique_reviews: 120
+              },
               short_rationale: "Guest reviews are the primary evidence source before drafting a page edit.",
               state_update: "Review evidence is missing.",
               should_stop: false
@@ -106,9 +112,11 @@ export function GET() {
               user_prompt: "Find more evidence for Wi-Fi reliability."
             },
             response: {
-              retrieved_review_count: 48,
+              search_strategy: "adaptive_time_boxed_evidence_report",
+              queries_run: 2,
+              retrieved_review_count: 80,
               indexed_review_texts_available: 1909,
-              retrieval_note: "Pinecone searches the full review namespace filtered by listing_id, then returns relevant evidence for the current action."
+              retrieval_note: "Pinecone searches the full review namespace with adaptive topic queries filtered by listing_id, then the agent merges unique review evidence within the run budget."
             }
           },
           {
