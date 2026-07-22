@@ -23,7 +23,7 @@ export function GET() {
             },
             response: {
               next_action: "search_reviews",
-              tool_input: { listing_id: "176153", topics: ["review_alignment", "stairs", "temperature"], top_k: 18 },
+              tool_input: { listing_id: "176153", topics: ["review_alignment", "stairs", "temperature"], top_k: 36 },
               short_rationale: "Guest reviews are the primary evidence source before drafting a page edit.",
               state_update: "Review evidence is missing.",
               should_stop: false
@@ -52,37 +52,6 @@ export function GET() {
                 field: "description",
                 liveAirbnbUpdated: false
               }
-            }
-          }
-        ]
-      },
-      {
-        prompt:
-          "I manage 8 Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings end to end. Prioritize gaps between guest reviews and current page descriptions; use Google Places only as supporting context; update only pages with strong evidence-backed improvements; and give me a per-listing audit summary.",
-        full_response:
-          "Portfolio request completed. The agent selected the evidence-rich managed listings, ran each listing independently, prioritized guest-review gaps, updated only approved simulated page text, and reported per-listing decisions.",
-        steps: [
-          {
-            module: "Input Scope Guard",
-            prompt: {
-              system_prompt: "Check whether the request belongs to the agent's allowed domain before using retrieval or LLM.",
-              user_prompt: "Portfolio manager request for all managed Lisbon Airbnb listings."
-            },
-            response: {
-              in_scope: true,
-              category: "listing_page_management",
-              token_safety: "No LLM, Review RAG, or Google Places calls happen before this guard passes."
-            }
-          },
-          {
-            module: "Portfolio Manager",
-            prompt: {
-              system_prompt: "Select the manager-owned demo listings with the richest evidence.",
-              user_prompt: "All managed listings request."
-            },
-            response: {
-              requested_listings: 8,
-              selection_rule: "Highest Airbnb review count plus nearby Google Places coverage."
             }
           }
         ]

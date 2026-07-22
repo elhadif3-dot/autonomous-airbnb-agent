@@ -60,7 +60,7 @@ type TraceSummary = {
 const defaultPrompt =
   "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
 
-function promptExamples(listingName: string, managedCount: number) {
+function promptExamples(listingName: string) {
   return [
     {
       label: "Improve end to end",
@@ -91,16 +91,11 @@ function promptExamples(listingName: string, managedCount: number) {
       label: "Undo last page edit",
       hint: "Restore original dataset text",
       prompt: `I did not like the simulated edit on "${listingName}". Restore this listing page to the original dataset text and record what you restored.`
-    },
-    {
-      label: "Improve all managed listings",
-      hint: `Review ${managedCount} evidence-rich listings`,
-      prompt: `I manage ${managedCount} Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings end to end. Prioritize gaps between guest reviews and current page descriptions; use Google Places only as supporting context; update only pages with strong evidence-backed improvements; and give me a per-listing audit summary.`
     }
   ];
 }
 
-export function DemoDashboard({ initialListings, listingOptions, managedCount, totalDatasetListings }: Props) {
+export function DemoDashboard({ initialListings, listingOptions, totalDatasetListings }: Props) {
   const [listings, setListings] = useState(initialListings);
   const [selectedId, setSelectedId] = useState(initialListings[0]?.id ?? listingOptions[0]?.id ?? "");
   const [prompt, setPrompt] = useState(defaultPrompt);
@@ -116,8 +111,8 @@ export function DemoDashboard({ initialListings, listingOptions, managedCount, t
   );
 
   const examples = useMemo(
-    () => promptExamples(selectedListing?.name ?? "this listing", managedCount),
-    [selectedListing?.name, managedCount]
+    () => promptExamples(selectedListing?.name ?? "this listing"),
+    [selectedListing?.name]
   );
 
   async function selectListing(id: string) {

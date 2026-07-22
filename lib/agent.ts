@@ -846,14 +846,14 @@ function inferIntent(prompt: string): string[] {
 
 function reviewRetrievalLimit(state: AgentState): number {
   if (state.requireMoreEvidence) {
-    return 24;
+    return 48;
   }
 
   if (state.intent.includes("review_alignment")) {
-    return 18;
+    return 36;
   }
 
-  return 8;
+  return 16;
 }
 
 function reviewQueryForIntent(listing: Listing, intent: string[]): string {
@@ -931,16 +931,45 @@ function searchRelevantReviews(reviews: Review[], intent: string[], topK: number
 function filterRelevantPlaces(places: Place[], intent: string[]): Place[] {
   if (intent.includes("nearby_highlights")) {
     return places
-      .filter((place) => /Culture|Parks_Recreation|Dining/i.test(place.category))
-      .filter((place) => (place.rating ?? 0) >= 4.3 && place.numberOfReviews >= 15)
-      .slice(0, 5);
+      .filter(isGuestValuablePlace)
+      .slice(0, 8);
   }
 
   if (intent.includes("noise")) {
     return places.filter((place) => /bar|restaurant|night|cafe/i.test(`${place.category} ${place.placeName}`)).slice(0, 5);
   }
 
-  return places.slice(0, 5);
+  return places.filter(isGuestValuablePlace).slice(0, 6);
+}
+
+function isGuestValuablePlace(place: Place): boolean {
+  const text = `${place.category} ${place.placeName}`.toLowerCase();
+  const guestFacingCategory = /culture|parks_recreation|dining|wellness_lifestyle|nightlife/.test(text);
+  const notUsefulForListingCopy = /storage|luggage|facility|atm|bank|real estate|school|clinic|pharmacy|parking/i.test(text);
+  return guestFacingCategory && !notUsefulForListingCopy && (place.rating ?? 0) >= 4.4 && place.numberOfReviews >= 40;
+}
+
+function formatPlaceForGuestCopy(place: Place): string {
+  const rating = place.rating ? `${place.rating.toFixed(1)}/5` : "highly rated";
+  const reviews = place.numberOfReviews > 0 ? `, ${place.numberOfReviews} Google reviews` : "";
+  const distance = approximateDistance(place.distanceKm);
+  return `${place.placeName} (${rating}${reviews}${distance})`;
+}
+
+function approximateDistance(distanceKm?: number): string {
+  if (typeof distanceKm !== "number" || !Number.isFinite(distanceKm)) {
+    return "";
+  }
+
+  if (distanceKm < 0.25) {
+    return ", about a few minutes away";
+  }
+
+  if (distanceKm < 1) {
+    return `, about ${Math.round(distanceKm * 10) / 10} km away`;
+  }
+
+  return `, about ${Math.round(distanceKm)} km away`;
 }
 
 function detectSignals(
@@ -1122,17 +1151,17 @@ function detectSignals(
     }
   }
 
-  if (intent.includes("nearby_highlights") && places.length >= 3 && !description.includes("nearby highlights")) {
-    const topPlaces = places.slice(0, 3).map((place) => place.placeName);
+  if ((intent.includes("nearby_highlights") || hasBroadIntent) && places.length >= 2 && !description.includes("nearby highlights")) {
+    const topPlaces = places.slice(0, 3);
     const reviewSupport = reviews.filter((review) => /nearby|restaurant|park|cafe|attraction|location/i.test(review.comments));
     if (reviewSupport.length >= 2) {
       signals.push({
         type: "positive_highlight",
-        topic: "Nearby guest highlights",
+        topic: "Rated nearby guest options",
         evidenceCount: places.length + reviewSupport.length,
         primaryEvidenceCount: reviewSupport.length,
-        evidence: [...reviewSupport.slice(0, 2).map((review) => excerpt(review.comments)), ...topPlaces],
-        recommendation: "Add a concise nearby highlights note based on guest location comments plus Google Places context."
+        evidence: [...reviewSupport.slice(0, 2).map((review) => excerpt(review.comments)), ...topPlaces.map(formatPlaceForGuestCopy)],
+        recommendation: "Add a concise nearby highlights note using guest location comments plus high-quality Google Places rating context."
       });
     }
   }
@@ -1151,7 +1180,7 @@ function detectSignals(
         primaryEvidenceCount: diningReviewSupport.length,
         evidence: [
           ...diningReviewSupport.slice(0, 2).map((review) => excerpt(review.comments)),
-          ...diningPlaces.map((place) => `${place.placeName} (${place.rating?.toFixed(1) ?? "rated"}, ${place.numberOfReviews} Google reviews)`)
+          ...diningPlaces.map(formatPlaceForGuestCopy)
         ],
         recommendation: "Add nearby dining options only when Airbnb reviews support the area value and Google Places provides rating context."
       });
@@ -1193,7 +1222,7 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
     return stopProposal(listing.id, "No strong, editable gap was found.");
   }
 
-  const selectedSignals = editableSignals.slice(0, 3);
+  const selectedSignals = selectSignalsForEdit(editableSignals);
   const additions = selectedSignals.map((signal) => {
     if (signal.topic === "Historic Lisbon hills") {
       return "A great fit for guests who want to explore historic Lisbon on foot; some nearby streets are steep, so comfortable walking shoes are recommended.";
@@ -1225,13 +1254,13 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
     if (signal.topic === "Remote-work readiness") {
       return "For guests mixing travel with work, reviews and listed amenities support a practical short remote-work setup.";
     }
-    if (signal.topic === "Nearby guest highlights") {
-      const placeNames = signal.evidence.filter((item) => !item.includes("...")).slice(-3);
-      return `Guests who like having useful options close by can use the surrounding area as a convenient base, with nearby local options such as ${placeNames.join(", ")}.`;
+    if (signal.topic === "Rated nearby guest options") {
+      const places = signal.evidence.filter(isFormattedGooglePlace).slice(-3);
+      return `Guest location reviews support highlighting the surrounding area, with highly rated nearby options such as ${places.join(", ")}.`;
     }
     if (signal.topic === "Rated nearby dining options") {
-      const placeNames = signal.evidence.filter((item) => /\([^)]+Google reviews\)/i.test(item));
-      return `Guests mention the convenience of nearby places to eat, and Google Places context supports that with highly rated nearby dining options such as ${placeNames.join(", ")}.`;
+      const places = signal.evidence.filter(isFormattedGooglePlace).slice(-3);
+      return `Guests mention the convenience of nearby places to eat, and Google Places context supports that with highly rated nearby dining options such as ${places.join(", ")}.`;
     }
     return signal.recommendation;
   });
@@ -1245,6 +1274,23 @@ function draftEdit(listing: Listing, signals: Signal[]): EditProposal {
   };
 }
 
+function selectSignalsForEdit(signals: Signal[]): Signal[] {
+  const selected = signals.slice(0, 3);
+  const nearbySignal = signals.find(
+    (signal) => signal.topic === "Rated nearby guest options" || signal.topic === "Rated nearby dining options"
+  );
+
+  if (nearbySignal && !selected.includes(nearbySignal)) {
+    selected.push(nearbySignal);
+  }
+
+  return selected.slice(0, 4);
+}
+
+function isFormattedGooglePlace(value: string): boolean {
+  return /\bGoogle reviews\b/i.test(value) || /\b\/5\b/i.test(value);
+}
+
 function signalPriority(signal: Signal): number {
   if (signal.type === "accuracy_gap") {
     return 0;
@@ -1254,7 +1300,7 @@ function signalPriority(signal: Signal): number {
     return 1;
   }
 
-  if (signal.topic === "Nearby guest highlights") {
+  if (signal.topic === "Rated nearby guest options") {
     return 3;
   }
 
