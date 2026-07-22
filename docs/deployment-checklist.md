@@ -37,11 +37,11 @@ Then:
 ```bash
 npm run setup-pinecone
 npm run setup-pinecone -- --create
-npm run ingest-pinecone -- --limit 200 --confirm-paid
+npm run ingest-pinecone -- --managed-demo --confirm-paid
 npm run pinecone-stats
 ```
 
-Only remove `--limit` after the small ingestion looks correct.
+Only remove `--managed-demo` after the small portfolio ingestion looks correct.
 
 ## Vercel
 

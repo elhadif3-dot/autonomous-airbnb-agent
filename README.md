@@ -69,11 +69,11 @@ Without Pinecone credentials, the app falls back to the prepared CSV data so the
 ```bash
 npm run setup-pinecone
 npm run setup-pinecone -- --create
-npm run ingest-pinecone -- --limit 200 --confirm-paid
+npm run ingest-pinecone -- --managed-demo --confirm-paid
 npm run pinecone-stats
 ```
 
-Use a small `--limit` first. Remove the limit only after confirming the index, retrieval quality, and budget.
+Use `--managed-demo` first to ingest only the evidence-rich demo portfolio. Remove it only after confirming the index, retrieval quality, and budget.
 The ingestion script calls the LLMod embedding model and therefore requires `--confirm-paid`.
 
 Required Pinecone/embedding environment variables:

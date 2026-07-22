@@ -2,7 +2,7 @@ import {
   getListingById,
   getManagedDemoListings,
   getPlacesNearListing,
-  getReviewsForListing
+  getReviewSearchResult
 } from "@/lib/data";
 import { enforceGuardrails, validateProposal } from "@/lib/guardrails";
 import { callLlmJson } from "@/lib/llmClient";
@@ -526,16 +526,18 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot search reviews before listing data is loaded.");
       }
 
-      const reviews = await getReviewsForListing(
+      const reviewResult = await getReviewSearchResult(
         state.listing.id,
         reviewQueryForIntent(state.listing, state.intent),
         Math.max(reviewRetrievalLimit(state), state.requireMoreEvidence ? 24 : 12)
       );
+      const reviews = reviewResult.reviews;
       const relevantReviews = searchRelevantReviews(reviews, state.intent, reviewRetrievalLimit(state));
       state.reviews = reviews;
       state.relevantReviews = relevantReviews;
       steps.push(step("Review RAG", "Retrieve Airbnb guest reviews for the selected listing.", JSON.stringify(actionRequest.tool_input), {
         listing_id: state.listing.id,
+        source: reviewResult.source,
         total_reviews_available: reviews.length,
         retrieved_reviews: relevantReviews.map((review) => ({
           review_id: review.id,
@@ -543,7 +545,10 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
           date: review.date,
           excerpt: excerpt(review.comments)
         })),
-        retrieval_note: "Airbnb reviews are the primary evidence source and are filtered by listing_id."
+        retrieval_note:
+          reviewResult.source === "pinecone"
+            ? "Airbnb reviews were retrieved from Pinecone vector search and filtered by listing_id."
+            : "Airbnb reviews were retrieved from the local CSV fallback and filtered by listing_id."
       }));
       return true;
     }

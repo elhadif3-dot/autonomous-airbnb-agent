@@ -90,7 +90,11 @@ export async function getListingById(id: string): Promise<Listing | null> {
   return listings.find((listing) => listing.id === id) ?? null;
 }
 
-export async function getReviewsForListing(listingId: string, query?: string, limit = 80): Promise<Review[]> {
+export async function getReviewSearchResult(
+  listingId: string,
+  query?: string,
+  limit = 80
+): Promise<{ reviews: Review[]; source: "pinecone" | "csv_fallback" }> {
   const pineconeReviews = await queryPineconeReviews({
     listingId,
     query: query || `Guest reviews for Lisbon Airbnb listing ${listingId}`,
@@ -98,7 +102,7 @@ export async function getReviewsForListing(listingId: string, query?: string, li
   });
 
   if (pineconeReviews?.length) {
-    return pineconeReviews;
+    return { reviews: pineconeReviews, source: "pinecone" };
   }
 
   if (!reviewsCache) {
@@ -114,7 +118,15 @@ export async function getReviewsForListing(listingId: string, query?: string, li
       }));
   }
 
-  return reviewsCache.filter((review) => review.listingId === listingId).slice(0, limit);
+  return {
+    reviews: reviewsCache.filter((review) => review.listingId === listingId).slice(0, limit),
+    source: "csv_fallback"
+  };
+}
+
+export async function getReviewsForListing(listingId: string, query?: string, limit = 80): Promise<Review[]> {
+  const result = await getReviewSearchResult(listingId, query, limit);
+  return result.reviews;
 }
 
 export async function getPlacesNearListing(listing: Listing, limit = 8): Promise<Place[]> {

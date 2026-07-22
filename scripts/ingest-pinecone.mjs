@@ -17,14 +17,35 @@ if (!argSet.has("--confirm-paid")) {
 }
 
 const limit = numberArg("--limit", 0);
-const batchSize = numberArg("--batch-size", 32);
+const batchSize = Math.max(1, numberArg("--batch-size", 32));
+const listingIds = listingIdsArg();
 const namespace = pineconeReviewNamespace();
 const indexName = pineconeReviewIndexName();
 const apiKey = requireEnv("PINECONE_API_KEY");
 
-const rows = rowsToObjects(parseCsv(await readFile("lisbon_reviews_final_with_pois.csv", "utf8")))
+const filteredRows = rowsToObjects(parseCsv(await readFile("lisbon_reviews_final_with_pois.csv", "utf8")))
   .filter((row) => row.listing_id && row.id && row.comments)
-  .slice(0, limit > 0 ? limit : undefined);
+  .filter((row) => listingIds.length === 0 || listingIds.includes(row.listing_id));
+const rows = limit > 0 ? filteredRows.slice(0, limit) : filteredRows;
+
+console.log(JSON.stringify({
+  status: "prepared",
+  rows: rows.length,
+  listing_ids: listingIds.length,
+  batch_size: batchSize,
+  namespace,
+  index: indexName
+}));
+
+if (rows.length === 0) {
+  console.log(JSON.stringify({
+    status: "complete",
+    upserted: 0,
+    namespace,
+    index: indexName
+  }, null, 2));
+  process.exit(0);
+}
 
 const pc = new Pinecone({ apiKey });
 const target = pc.index(indexName).namespace(namespace);
@@ -32,6 +53,9 @@ const target = pc.index(indexName).namespace(namespace);
 let upserted = 0;
 for (let offset = 0; offset < rows.length; offset += batchSize) {
   const batch = rows.slice(offset, offset + batchSize);
+  if (batch.length === 0) {
+    continue;
+  }
   const embeddings = await embedTexts(batch.map((row) => cleanText(row.comments)));
   const vectors = batch.map((row, index) => ({
     id: `review-${row.listing_id}-${row.id}`,
@@ -45,7 +69,7 @@ for (let offset = 0; offset < rows.length; offset += batchSize) {
     }
   }));
 
-  await target.upsert(vectors);
+  await target.upsert({ records: vectors });
   upserted += vectors.length;
   console.log(JSON.stringify({
     status: "batch_upserted",
@@ -114,6 +138,22 @@ function numberArg(name, fallback) {
 
   const value = Number(args[index + 1]);
   return Number.isFinite(value) ? value : fallback;
+}
+
+function listingIdsArg() {
+  if (argSet.has("--managed-demo")) {
+    return ["45855270", "19171082", "19240515", "176153", "447832", "493274", "1916892", "6429072"];
+  }
+
+  const index = args.indexOf("--listing-ids");
+  if (index === -1 || !args[index + 1]) {
+    return [];
+  }
+
+  return args[index + 1]
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function cleanText(value) {
