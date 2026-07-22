@@ -5,7 +5,6 @@ import {
   Bath,
   BedDouble,
   BriefcaseBusiness,
-  CalendarDays,
   ChevronDown,
   CircleParking,
   Coffee,
@@ -32,15 +31,7 @@ import {
 } from "lucide-react";
 import type { AgentStep, ExecuteResponse, Listing, Review } from "@/lib/types";
 
-type DisplayPlace = {
-  placeName: string;
-  category: string;
-  rating: number | null;
-  distanceKm?: number;
-};
-
 type DemoListing = Listing & {
-  nearbyPlaces: DisplayPlace[];
   recentReviews: Review[];
 };
 
@@ -49,8 +40,8 @@ type Props = {
 };
 
 const samplePrompts = [
-  "Check this listing for gaps between guest reviews and the current page. If there is a justified edit, update the simulated page.",
   "Find positive nearby highlights that are missing from the listing page and add only evidence-backed text.",
+  "Check this listing for gaps between guest reviews and the current page. If there is a justified edit, update the simulated page.",
   "Review whether the listing overpromises quietness or location convenience. Edit only if the evidence is strong."
 ];
 
@@ -60,6 +51,7 @@ export function DemoDashboard({ listings }: Props) {
   const [result, setResult] = useState<ExecuteResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
+  const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
 
   const selectedListing = useMemo(
     () => listings.find((listing) => listing.id === selectedId) ?? listings[0],
@@ -100,17 +92,17 @@ export function DemoDashboard({ listings }: Props) {
       return;
     }
 
-    const response = await fetch("/api/demo_reset", {
+    await fetch("/api/demo_reset", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({ listing_id: selectedListing.id })
     });
-    const payload = (await response.json()) as { page?: { currentDescription: string } };
+
     setSimulatedDescriptions((current) => ({
       ...current,
-      [selectedListing.id]: payload.page?.currentDescription ?? selectedListing.description
+      [selectedListing.id]: selectedListing.description
     }));
     setResult(null);
   }
@@ -130,6 +122,15 @@ export function DemoDashboard({ listings }: Props) {
           setSelectedId(id);
           setResult(null);
         }}
+      />
+
+      <AgentFeatureBar
+        prompt={prompt}
+        setPrompt={setPrompt}
+        runAgent={runAgent}
+        resetPage={resetPage}
+        isRunning={isRunning}
+        result={result}
       />
 
       <main className="listingShell">
@@ -164,8 +165,8 @@ export function DemoDashboard({ listings }: Props) {
                   {selectedListing.roomType} in {selectedListing.neighbourhood}
                 </h2>
                 <p>
-                  {selectedListing.accommodates} guests · {selectedListing.bedrooms ?? "N/A"} bedrooms ·{" "}
-                  {selectedListing.beds ?? "N/A"} beds · {selectedListing.bathroomsText}
+                  {selectedListing.accommodates} guests | {selectedListing.bedrooms ?? "N/A"} bedrooms |{" "}
+                  {selectedListing.beds ?? "N/A"} beds | {selectedListing.bathroomsText}
                 </p>
               </div>
               <div className="hostAvatar">
@@ -175,7 +176,7 @@ export function DemoDashboard({ listings }: Props) {
 
             <section className="trustStrip">
               <TrustItem icon={<Medal size={24} />} title="Guest experience signals" text={`${selectedListing.numberOfReviews} Airbnb reviews`} />
-              <TrustItem icon={<MapPin size={24} />} title="Location context" text={`${selectedListing.nearbyPlacesCount} nearby places in dataset`} />
+              <TrustItem icon={<MapPin size={24} />} title="Agent location context" text={`${selectedListing.nearbyPlacesCount} nearby places available to the agent`} />
               <TrustItem icon={<ShieldCheck size={24} />} title="Supervisor controlled" text="No page edit without approval" />
             </section>
 
@@ -193,36 +194,32 @@ export function DemoDashboard({ listings }: Props) {
             <section className="listingSection">
               <div className="sectionHeaderRow">
                 <div>
-                  <h2>Nearby places from the dataset</h2>
-                  <p>Used as environmental context. Guest reviews remain the main evidence source.</p>
-                </div>
-                <Sparkles size={22} />
-              </div>
-              <NearbyPlaces places={selectedListing.nearbyPlaces} />
-            </section>
-
-            <section className="listingSection">
-              <div className="sectionHeaderRow">
-                <div>
                   <h2>Guest reviews</h2>
-                  <p>Read-only source evidence. The agent can search reviews, but cannot edit them.</p>
+                  <p>
+                    {selectedListing.numberOfReviews} total reviews in the dataset. Reviews are read-only evidence and cannot be edited by the agent.
+                  </p>
                 </div>
                 <Star size={22} />
               </div>
-              <ReviewList reviews={selectedListing.recentReviews} />
+              <ReviewList
+                reviews={selectedListing.recentReviews}
+                totalReviews={selectedListing.numberOfReviews}
+                visibleCount={visibleReviews[selectedListing.id] ?? 4}
+                onLoadMore={() =>
+                  setVisibleReviews((current) => ({
+                    ...current,
+                    [selectedListing.id]: Math.min(
+                      (current[selectedListing.id] ?? 4) + 4,
+                      selectedListing.recentReviews.length
+                    )
+                  }))
+                }
+              />
             </section>
           </article>
 
           <aside className="sideRail">
             <ReservationCard listing={selectedListing} />
-            <AgentCard
-              prompt={prompt}
-              setPrompt={setPrompt}
-              runAgent={runAgent}
-              resetPage={resetPage}
-              isRunning={isRunning}
-              result={result}
-            />
           </aside>
         </div>
       </main>
@@ -254,13 +251,87 @@ function Header({
           ))}
         </select>
         <span>Lisbon</span>
-        <span>Listing demo</span>
+        <span>Managed listing</span>
         <button type="button" aria-label="Search">
           <Search size={17} />
         </button>
       </div>
       <div className="managerBadge">Property manager demo</div>
     </header>
+  );
+}
+
+function AgentFeatureBar({
+  prompt,
+  setPrompt,
+  runAgent,
+  resetPage,
+  isRunning,
+  result
+}: {
+  prompt: string;
+  setPrompt: (value: string) => void;
+  runAgent: () => void;
+  resetPage: () => void;
+  isRunning: boolean;
+  result: ExecuteResponse | null;
+}) {
+  return (
+    <section className="agentDock">
+      <div className="agentDockIntro">
+        <div>
+          <span className="agentEyebrow">Autonomous Listing Editor</span>
+          <h2>Ask the agent to improve the simulated listing page</h2>
+          <p>
+            The page starts from the Airbnb dataset. The agent may update only the simulated page text and must explain what changed.
+          </p>
+        </div>
+        <MessageSquareText size={24} />
+      </div>
+
+      <div className="promptExamples">
+        {samplePrompts.map((example) => (
+          <button type="button" key={example} onClick={() => setPrompt(example)}>
+            {example}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        className="promptBox"
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        aria-label="Agent prompt"
+      />
+
+      <div className="scopeBox">
+        <div>
+          <strong>Editable in demo</strong>
+          <span>Description, guest expectation notes, nearby highlights text</span>
+        </div>
+        <div>
+          <strong>Read-only sources</strong>
+          <span>Reviews, original CSV data, prices, bookings, Google Places source rows</span>
+        </div>
+      </div>
+
+      <div className="agentActions">
+        <button className="primaryButton" type="button" onClick={runAgent} disabled={isRunning}>
+          {isRunning ? "Running..." : "Run Agent"}
+        </button>
+        <button className="ghostButton" type="button" onClick={resetPage}>
+          Reset Page
+        </button>
+      </div>
+
+      {!result ? (
+        <div className="emptyState">
+          Action Trace will show selected tools, observations, Supervisor decision, page update, and audit log.
+        </div>
+      ) : (
+        <AgentResult result={result} />
+      )}
+    </section>
   );
 }
 
@@ -314,40 +385,19 @@ function Amenities({ amenities }: { amenities: string[] }) {
   );
 }
 
-function NearbyPlaces({ places }: { places: DisplayPlace[] }) {
-  if (places.length === 0) {
-    return <p className="mutedText">No nearby places available for this listing in the prepared dataset.</p>;
-  }
-
-  return (
-    <div className="nearbyList">
-      {places.slice(0, 6).map((place) => (
-        <div className="nearbyItem" key={`${place.placeName}-${place.distanceKm}`}>
-          <div className="nearbyIcon">
-            <MapPin size={18} />
-          </div>
-          <div>
-            <strong>{place.placeName}</strong>
-            <span>
-              {place.category} · {place.rating ?? "N/A"} rating · {place.distanceKm?.toFixed(1)} km
-            </span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function EditableHighlights({ description }: { description: string }) {
   const highlights = extractNearbyHighlights(description);
+  if (!highlights) {
+    return null;
+  }
 
   return (
     <div className="editableHighlightBlock">
       <div>
         <Sparkles size={20} />
-        <strong>Curated nearby highlights on page</strong>
+        <strong>Added by the agent</strong>
       </div>
-      <p>{highlights ?? "No curated nearby highlights have been added to the simulated listing page yet."}</p>
+      <p>{highlights}</p>
     </div>
   );
 }
@@ -383,69 +433,6 @@ function ReservationCard({ listing }: { listing: DemoListing }) {
   );
 }
 
-function AgentCard({
-  prompt,
-  setPrompt,
-  runAgent,
-  resetPage,
-  isRunning,
-  result
-}: {
-  prompt: string;
-  setPrompt: (value: string) => void;
-  runAgent: () => void;
-  resetPage: () => void;
-  isRunning: boolean;
-  result: ExecuteResponse | null;
-}) {
-  return (
-    <section className="agentCard">
-      <div className="agentCardHeader">
-        <div>
-          <span className="agentEyebrow">Autonomous Listing Editor</span>
-          <h2>Improve this page with evidence</h2>
-        </div>
-        <MessageSquareText size={24} />
-      </div>
-
-      <textarea
-        className="promptBox"
-        value={prompt}
-        onChange={(event) => setPrompt(event.target.value)}
-        aria-label="Agent prompt"
-      />
-
-      <div className="scopeBox">
-        <div>
-          <strong>Editable in demo</strong>
-          <span>Description, guest expectation notes, nearby highlights text</span>
-        </div>
-        <div>
-          <strong>Read-only sources</strong>
-          <span>Reviews, original CSV data, prices, bookings, Google Places source rows</span>
-        </div>
-      </div>
-
-      <div className="agentActions">
-        <button className="primaryButton" type="button" onClick={runAgent} disabled={isRunning}>
-          {isRunning ? "Running..." : "Run Agent"}
-        </button>
-        <button className="ghostButton" type="button" onClick={resetPage}>
-          Reset Page
-        </button>
-      </div>
-
-      {!result ? (
-        <div className="emptyState">
-          Action Trace will show selected tools, observations, Supervisor decision, page update, and audit log.
-        </div>
-      ) : (
-        <AgentResult result={result} />
-      )}
-    </section>
-  );
-}
-
 function AgentResult({ result }: { result: ExecuteResponse }) {
   const supervisorStep = result.steps.find((step) => step.module === "Supervisor / Control Agent");
   const decision = getDecision(supervisorStep);
@@ -453,14 +440,14 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
   return (
     <div className="result">
       <div className="responseBox">
-        <h4>Final Response</h4>
+        <h4>Agent response</h4>
         {decision ? <span className={`decision ${decision.toLowerCase()}`}>{decision}</span> : null}
         <p>{result.response ?? result.error}</p>
       </div>
 
       {result.page_update ? (
         <div className="auditBox">
-          <h4>Simulated Page Update</h4>
+          <h4>What changed on the simulated page</h4>
           <p>Status: {result.page_update.status}</p>
           {result.page_update.status === "executed" ? (
             <div className="diffGrid">
@@ -479,9 +466,9 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
 
       {result.audit_log ? (
         <div className="auditBox">
-          <h4>Audit Log</h4>
+          <h4>Audit log</h4>
           <p>
-            {result.audit_log.createdAt} · {result.audit_log.decision} · liveAirbnbUpdated=
+            {result.audit_log.createdAt} | {result.audit_log.decision} | liveAirbnbUpdated=
             {String(result.audit_log.liveAirbnbUpdated)}
           </p>
         </div>
@@ -501,28 +488,51 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
   );
 }
 
-function ReviewList({ reviews }: { reviews: Review[] }) {
+function ReviewList({
+  reviews,
+  totalReviews,
+  visibleCount,
+  onLoadMore
+}: {
+  reviews: Review[];
+  totalReviews: number;
+  visibleCount: number;
+  onLoadMore: () => void;
+}) {
   if (reviews.length === 0) {
     return <p className="mutedText">No guest reviews available for this listing in the prepared dataset.</p>;
   }
 
+  const visible = reviews.slice(0, visibleCount);
+  const canLoadMore = visibleCount < reviews.length;
+
   return (
-    <div className="reviewGrid">
-      {reviews.map((review) => (
-        <article className="reviewItem" key={review.id}>
-          <div className="reviewHeader">
-            <div className="reviewAvatar">
-              <UserRound size={18} />
+    <>
+      <div className="reviewMetaLine">
+        Showing {visible.length} of {totalReviews} reviews. More reviews are available to the agent through retrieval.
+      </div>
+      <div className="reviewGrid">
+        {visible.map((review) => (
+          <article className="reviewItem" key={review.id}>
+            <div className="reviewHeader">
+              <div className="reviewAvatar">
+                <UserRound size={18} />
+              </div>
+              <div>
+                <strong>Guest review</strong>
+                <span>{review.date}</span>
+              </div>
             </div>
-            <div>
-              <strong>Guest review</strong>
-              <span>{review.date}</span>
-            </div>
-          </div>
-          <p>{review.comments.length > 260 ? `${review.comments.slice(0, 260).trim()}...` : review.comments}</p>
-        </article>
-      ))}
-    </div>
+            <p>{review.comments.length > 260 ? `${review.comments.slice(0, 260).trim()}...` : review.comments}</p>
+          </article>
+        ))}
+      </div>
+      {canLoadMore ? (
+        <button className="loadMoreButton" type="button" onClick={onLoadMore}>
+          Load more reviews
+        </button>
+      ) : null}
+    </>
   );
 }
 

@@ -9,6 +9,7 @@ The project uses prepared offline data only:
 - `lisbon_google_places_filtered.csv` as nearby environmental context
 
 No live Airbnb account is accessed, no scraping is performed, and all page updates are applied only inside the demo environment.
+The listing page initially renders from the prepared Airbnb dataset. Agent edits are session-level simulated page updates; refreshing/re-entering the app starts again from the dataset state.
 
 Live LLM calls are disabled by default. The code runs in mock mode unless token usage is explicitly approved and enabled.
 
