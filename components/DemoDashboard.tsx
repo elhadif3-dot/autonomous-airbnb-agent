@@ -88,7 +88,7 @@ function promptExamples(listingName: string) {
     {
       label: "Nearby places within 1 km",
       hint: "Google rating, reviews, distance",
-      prompt: `For "${listingName}", focus only on nearby places worth highlighting within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance from the listing. Do not search for general review gaps. If there are places strong enough to help sell the stay, add a concise natural sentence to the simulated description with the place names, ratings, Google review counts, and approximate distance. If no nearby place is strong enough, stop without editing.`
+      prompt: `For "${listingName}", focus only on nearby places worth highlighting within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance from the listing. Do not search for general review gaps. If there are places strong enough to make the stay more attractive, add a concise natural sentence to the simulated description with the place names, ratings, Google review counts, and approximate distance. If no nearby place is strong enough, stop without editing.`
     },
     {
       label: "Polish listing copy",

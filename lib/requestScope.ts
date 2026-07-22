@@ -21,7 +21,8 @@ const strongDomainPatterns = [
 ];
 
 const capabilityPatterns = [
-  /\b(what can you do|help|capabilities|scope|tools)\b/i,
+  /\b(what can you do|how can you help|can you help|what are your capabilities|what tools do you have|what is your scope)\b/i,
+  /\b(capabilities|available tools|agent scope|allowed tools)\b/i,
   /מה אתה|מה הסוכן|מה אפשר|יודע לעשות|יכול לעשות|יכולות|כלים|עזרה/
 ];
 

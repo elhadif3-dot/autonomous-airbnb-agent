@@ -836,7 +836,8 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
           state.listing,
           state.signals,
           state.page?.currentDescription ?? state.listing.description,
-          state.reviewSearchStats
+          state.reviewSearchStats,
+          state.intent
         )
       );
       state.proposal = proposal;
@@ -1584,7 +1585,10 @@ function filterRelevantPlaces(places: Place[], intent: string[]): Place[] {
 function isGuestValuablePlace(place: Place): boolean {
   const text = `${place.category} ${place.placeName}`.toLowerCase();
   const guestFacingCategory = /culture|parks_recreation|dining|wellness_lifestyle|nightlife/.test(text);
-  const notUsefulForListingCopy = /storage|luggage|facility|atm|bank|real estate|school|clinic|pharmacy|parking/i.test(text);
+  const notUsefulForListingCopy =
+    /storage|luggage|facility|atm|bank|real estate|school|clinic|pharmacy|parking|apartment|apartments|vacation rental|vacation rentals|rental office|booking\.com|airbnb/i.test(
+      text
+    );
   return guestFacingCategory && !notUsefulForListingCopy && (place.rating ?? 0) >= 4.4 && place.numberOfReviews >= 40;
 }
 
@@ -1872,9 +1876,14 @@ function draftEdit(
   listing: Listing,
   signals: Signal[],
   currentDescription: string,
-  reviewStats?: ReviewSearchStats
+  reviewStats?: ReviewSearchStats,
+  intent: string[] = []
 ): EditProposal {
-  const editableSignals = signals
+  const nearbyPlacesOnly = intent.includes("nearby_highlights") && !intent.includes("review_alignment");
+  const candidateSignals = nearbyPlacesOnly
+    ? signals.filter((signal) => /^Rated nearby/i.test(signal.topic))
+    : signals;
+  const editableSignals = candidateSignals
     .filter(
       (signal) =>
         signal.type !== "insufficient_evidence" &&
@@ -1890,6 +1899,12 @@ function draftEdit(
         signal.primaryEvidenceCount >= 2 &&
         descriptionAlreadyCoversSignal(currentDescription, signal.topic)
     );
+    if (nearbyPlacesOnly) {
+      return stopProposal(
+        listing.id,
+        `${coverageProgressSentence(reviewStats)}No strong Google Places highlight was found for the requested nearby radius, or the current description already includes the strongest nearby-place text.${coverageContinuationSentence(reviewStats)}`
+      );
+    }
     const weakEditableSignals = signals.filter(
       (signal) =>
         signal.type !== "insufficient_evidence" &&
