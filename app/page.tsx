@@ -1,5 +1,10 @@
 import { DemoDashboard } from "@/components/DemoDashboard";
-import { getListings, getManagedDemoListings, getReviewsForListing } from "@/lib/data";
+import {
+  getListings,
+  getManagedDemoListings,
+  getReviewPreviewForListing,
+  getReviewTextCountForListing
+} from "@/lib/data";
 
 export default async function Home() {
   const [managedListings, allListings] = await Promise.all([
@@ -9,7 +14,8 @@ export default async function Home() {
   const simulatedListings = await Promise.all(
     managedListings.map(async (listing) => ({
       ...listing,
-      recentReviews: (await getReviewsForListing(listing.id)).slice(0, 12)
+      recentReviews: await getReviewPreviewForListing(listing.id, 12),
+      indexedReviewTextCount: await getReviewTextCountForListing(listing.id)
     }))
   );
   const managedIds = new Set(managedListings.map((listing) => listing.id));

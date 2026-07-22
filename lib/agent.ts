@@ -2,7 +2,8 @@ import {
   getListingById,
   getManagedDemoListings,
   getPlacesNearListing,
-  getReviewSearchResult
+  getReviewSearchResult,
+  getReviewTextCountForListing
 } from "@/lib/data";
 import { enforceGuardrails, validateProposal } from "@/lib/guardrails";
 import { callLlmJson } from "@/lib/llmClient";
@@ -545,19 +546,25 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot search reviews before listing data is loaded.");
       }
 
+      const retrievalLimit = Math.max(reviewRetrievalLimit(state), state.requireMoreEvidence ? 24 : 12);
       const reviewResult = await getReviewSearchResult(
         state.listing.id,
         reviewQueryForIntent(state.listing, state.intent),
-        Math.max(reviewRetrievalLimit(state), state.requireMoreEvidence ? 24 : 12)
+        retrievalLimit
       );
       const reviews = reviewResult.reviews;
       const relevantReviews = searchRelevantReviews(reviews, state.intent, reviewRetrievalLimit(state));
+      const indexedReviewTextCount = await getReviewTextCountForListing(state.listing.id);
       state.reviews = reviews;
       state.relevantReviews = relevantReviews;
       steps.push(step("Review RAG", "Retrieve Airbnb guest reviews for the selected listing.", JSON.stringify(actionRequest.tool_input), {
         listing_id: state.listing.id,
         source: reviewResult.source,
-        total_reviews_available: reviews.length,
+        indexed_review_texts_available: indexedReviewTextCount,
+        retrieved_review_count: reviews.length,
+        relevant_review_count: relevantReviews.length,
+        top_k_requested: retrievalLimit,
+        total_reviews_available: indexedReviewTextCount,
         retrieved_reviews: relevantReviews.map((review) => ({
           review_id: review.id,
           listing_id: review.listingId,
@@ -566,8 +573,8 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         })),
         retrieval_note:
           reviewResult.source === "pinecone"
-            ? "Airbnb reviews were retrieved from Pinecone vector search and filtered by listing_id."
-            : "Airbnb reviews were retrieved from the local CSV fallback and filtered by listing_id."
+            ? "Pinecone searches the full review namespace filtered by listing_id, then returns the most relevant reviews for the current action."
+            : "The local CSV fallback filters all prepared review texts by listing_id, then returns a bounded relevant sample for the current action."
       }));
       return true;
     }

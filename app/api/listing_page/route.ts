@@ -1,4 +1,4 @@
-import { getListingById } from "@/lib/data";
+import { getListingById, getReviewPreviewForListing, getReviewTextCountForListing } from "@/lib/data";
 import { getSimulatedListingPage } from "@/lib/simulatedStore";
 
 export async function GET(request: Request) {
@@ -16,6 +16,8 @@ export async function GET(request: Request) {
 
   return Response.json({
     status: "ok",
-    page: getSimulatedListingPage(listing)
+    page: getSimulatedListingPage(listing),
+    review_preview: await getReviewPreviewForListing(listing.id, 12),
+    indexed_review_text_count: await getReviewTextCountForListing(listing.id)
   });
 }

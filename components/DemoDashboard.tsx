@@ -33,6 +33,7 @@ import type { AgentStep, ExecuteResponse, Listing, Review } from "@/lib/types";
 
 type DemoListing = Listing & {
   recentReviews: Review[];
+  indexedReviewTextCount: number;
 };
 
 type ListingOption = Pick<
@@ -327,7 +328,7 @@ export function DemoDashboard({ initialListings, listingOptions, managedCount, t
                 <div>
                   <h2>Guest reviews</h2>
                   <p>
-                    {selectedListing.numberOfReviews} total reviews reported in the listing data. {selectedListing.recentReviews.length} review texts are loaded in this prepared RAG sample and remain read-only.
+                    {selectedListing.indexedReviewTextCount} review texts are available for this listing in the read-only review index. This page previews {selectedListing.recentReviews.length} examples; the agent retrieves relevant evidence from the full index when it runs.
                   </p>
                 </div>
                 <Star size={22} />
@@ -335,6 +336,7 @@ export function DemoDashboard({ initialListings, listingOptions, managedCount, t
               <ReviewList
                 reviews={selectedListing.recentReviews}
                 totalReviews={selectedListing.numberOfReviews}
+                indexedReviewTextCount={selectedListing.indexedReviewTextCount}
                 visibleCount={visibleReviews[selectedListing.id] ?? 4}
                 onLoadMore={() =>
                   setVisibleReviews((current) => ({
@@ -721,11 +723,13 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
 function ReviewList({
   reviews,
   totalReviews,
+  indexedReviewTextCount,
   visibleCount,
   onLoadMore
 }: {
   reviews: Review[];
   totalReviews: number;
+  indexedReviewTextCount: number;
   visibleCount: number;
   onLoadMore: () => void;
 }) {
@@ -739,7 +743,7 @@ function ReviewList({
   return (
     <>
       <div className="reviewMetaLine">
-        Showing {visible.length} of {reviews.length} loaded review texts. Listing data reports {totalReviews} total reviews.
+        Showing {visible.length} of {reviews.length} preview reviews. The agent can search {indexedReviewTextCount} indexed review texts for this listing; the source listing reports {totalReviews} total reviews.
       </div>
       <div className="reviewGrid">
         {visible.map((review) => (
@@ -894,10 +898,13 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
   }
 
   if (Array.isArray(response.retrieved_reviews)) {
+    const indexedCount = numberValue(response.indexed_review_texts_available) ?? numberValue(response.total_reviews_available);
+    const retrievedCount = numberValue(response.retrieved_review_count);
+    const source = stringValue(response.source);
     return {
       title: "Retrieved guest review evidence",
       status: `${response.retrieved_reviews.length} relevant reviews`,
-      observation: `${numberValue(response.total_reviews_available) ?? "Multiple"} total Airbnb reviews are available for this listing.`
+      observation: `${retrievedCount ?? response.retrieved_reviews.length} reviews were retrieved from ${source ?? "Review RAG"} for this action. The full read-only index has ${indexedCount ?? "many"} review texts for this listing.`
     };
   }
 

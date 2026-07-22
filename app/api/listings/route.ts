@@ -1,4 +1,10 @@
-import { getListingById, getListings, getManagedDemoListings, getReviewsForListing } from "@/lib/data";
+import {
+  getListingById,
+  getListings,
+  getManagedDemoListings,
+  getReviewPreviewForListing,
+  getReviewTextCountForListing
+} from "@/lib/data";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -14,7 +20,8 @@ export async function GET(request: Request) {
       status: "ok",
       listing: {
         ...listing,
-        recentReviews: (await getReviewsForListing(listing.id)).slice(0, 12)
+        recentReviews: await getReviewPreviewForListing(listing.id, 12),
+        indexedReviewTextCount: await getReviewTextCountForListing(listing.id)
       }
     });
   }

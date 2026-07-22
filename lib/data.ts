@@ -90,6 +90,33 @@ export async function getListingById(id: string): Promise<Listing | null> {
   return listings.find((listing) => listing.id === id) ?? null;
 }
 
+async function getAllLocalReviews(): Promise<Review[]> {
+  if (!reviewsCache) {
+    const csv = await readFile(path.join(root, "lisbon_reviews_final_with_pois.csv"), "utf8");
+    const objects = rowsToObjects(parseCsv(csv));
+    reviewsCache = objects
+      .filter((row) => row.listing_id && row.comments)
+      .map((row) => ({
+        listingId: row.listing_id,
+        id: row.id,
+        date: row.date,
+        comments: cleanText(row.comments)
+      }));
+  }
+
+  return reviewsCache;
+}
+
+export async function getReviewTextCountForListing(listingId: string): Promise<number> {
+  const reviews = await getAllLocalReviews();
+  return reviews.filter((review) => review.listingId === listingId).length;
+}
+
+export async function getReviewPreviewForListing(listingId: string, limit = 12): Promise<Review[]> {
+  const reviews = await getAllLocalReviews();
+  return reviews.filter((review) => review.listingId === listingId).slice(0, limit);
+}
+
 export async function getReviewSearchResult(
   listingId: string,
   query?: string,
@@ -105,21 +132,10 @@ export async function getReviewSearchResult(
     return { reviews: pineconeReviews, source: "pinecone" };
   }
 
-  if (!reviewsCache) {
-    const csv = await readFile(path.join(root, "lisbon_reviews_final_with_pois.csv"), "utf8");
-    const objects = rowsToObjects(parseCsv(csv));
-    reviewsCache = objects
-      .filter((row) => row.listing_id && row.comments)
-      .map((row) => ({
-        listingId: row.listing_id,
-        id: row.id,
-        date: row.date,
-        comments: cleanText(row.comments)
-      }));
-  }
+  const reviews = await getAllLocalReviews();
 
   return {
-    reviews: reviewsCache.filter((review) => review.listingId === listingId).slice(0, limit),
+    reviews: reviews.filter((review) => review.listingId === listingId).slice(0, limit),
     source: "csv_fallback"
   };
 }
