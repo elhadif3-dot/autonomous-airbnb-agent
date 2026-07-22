@@ -930,16 +930,14 @@ function searchRelevantReviews(reviews: Review[], intent: string[], topK: number
 
 function filterRelevantPlaces(places: Place[], intent: string[]): Place[] {
   if (intent.includes("nearby_highlights")) {
-    return places
-      .filter(isGuestValuablePlace)
-      .slice(0, 8);
+    return rankGuestValuablePlaces(places, 8);
   }
 
   if (intent.includes("noise")) {
     return places.filter((place) => /bar|restaurant|night|cafe/i.test(`${place.category} ${place.placeName}`)).slice(0, 5);
   }
 
-  return places.filter(isGuestValuablePlace).slice(0, 6);
+  return rankGuestValuablePlaces(places, 6);
 }
 
 function isGuestValuablePlace(place: Place): boolean {
@@ -947,6 +945,27 @@ function isGuestValuablePlace(place: Place): boolean {
   const guestFacingCategory = /culture|parks_recreation|dining|wellness_lifestyle|nightlife/.test(text);
   const notUsefulForListingCopy = /storage|luggage|facility|atm|bank|real estate|school|clinic|pharmacy|parking/i.test(text);
   return guestFacingCategory && !notUsefulForListingCopy && (place.rating ?? 0) >= 4.4 && place.numberOfReviews >= 40;
+}
+
+function rankGuestValuablePlaces(places: Place[], limit: number): Place[] {
+  const filtered = places.filter(isGuestValuablePlace);
+  const coreGuestPlaces = filtered.filter((place) => !/Wellness_Lifestyle/i.test(place.category));
+  const candidates = coreGuestPlaces.length >= Math.min(3, limit) ? coreGuestPlaces : filtered;
+  return candidates.sort((a, b) => guestPlaceScore(b) - guestPlaceScore(a)).slice(0, limit);
+}
+
+function guestPlaceScore(place: Place): number {
+  const category = place.category.toLowerCase();
+  const categoryBoost =
+    category.includes("dining") || category.includes("culture") || category.includes("parks_recreation")
+      ? 3
+      : category.includes("nightlife")
+        ? 1.2
+        : 0.4;
+  const rating = place.rating ?? 0;
+  const reviewWeight = Math.log10(place.numberOfReviews + 10);
+  const distancePenalty = Math.min(place.distanceKm ?? 2, 2) * 0.25;
+  return rating * reviewWeight + categoryBoost - distancePenalty;
 }
 
 function formatPlaceForGuestCopy(place: Place): string {
