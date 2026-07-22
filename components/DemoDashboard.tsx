@@ -51,7 +51,7 @@ type TraceSummary = {
 const defaultPrompt =
   "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
 
-function promptExamples(listingName: string) {
+function promptExamples(listingName: string, managedCount: number) {
   return [
     {
       label: "Improve end to end",
@@ -72,6 +72,11 @@ function promptExamples(listingName: string) {
       label: "Undo last page edit",
       hint: "Restore original dataset text",
       prompt: `I did not like the simulated edit on "${listingName}". Restore this listing page to the original dataset text and record what you restored.`
+    },
+    {
+      label: "Improve all managed listings",
+      hint: `Review ${managedCount} evidence-rich listings`,
+      prompt: `I manage ${managedCount} Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings, update only pages with strong evidence-backed improvements, skip listings where evidence is weak, and give me a per-listing audit summary.`
     }
   ];
 }
@@ -89,7 +94,10 @@ export function DemoDashboard({ listings }: Props) {
     [listings, selectedId]
   );
 
-  const examples = useMemo(() => promptExamples(selectedListing?.name ?? "this listing"), [selectedListing?.name]);
+  const examples = useMemo(
+    () => promptExamples(selectedListing?.name ?? "this listing", listings.length),
+    [selectedListing?.name, listings.length]
+  );
 
   async function runAgent() {
     if (!selectedListing) {
@@ -98,6 +106,10 @@ export function DemoDashboard({ listings }: Props) {
 
     setIsRunning(true);
     setResult(null);
+    const portfolioPageDescriptions = listings.reduce<Record<string, string>>((values, listing) => {
+      values[listing.id] = simulatedDescriptions[listing.id] ?? listing.description;
+      return values;
+    }, {});
 
     const response = await fetch("/api/execute", {
       method: "POST",
@@ -105,7 +117,9 @@ export function DemoDashboard({ listings }: Props) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`
+        prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
+        current_page_description: currentDescription,
+        portfolio_page_descriptions: portfolioPageDescriptions
       })
     });
 
@@ -116,6 +130,17 @@ export function DemoDashboard({ listings }: Props) {
         ...current,
         [payload.page_update!.listingId]: payload.page_update!.after!
       }));
+    }
+    if (payload.portfolio_update?.results) {
+      setSimulatedDescriptions((current) => {
+        const next = { ...current };
+        for (const item of payload.portfolio_update?.results ?? []) {
+          if (item.status === "executed" && item.after) {
+            next[item.listingId] = item.after;
+          }
+        }
+        return next;
+      });
     }
     setIsRunning(false);
   }
@@ -512,6 +537,28 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
         </div>
       ) : null}
 
+      {result.portfolio_update ? (
+        <div className="auditBox">
+          <h4>Portfolio result</h4>
+          <p>
+            {result.portfolio_update.executed} of {result.portfolio_update.requestedListings} managed listings were updated.
+            {result.portfolio_update.skipped > 0 ? ` ${result.portfolio_update.skipped} were left unchanged.` : ""}
+          </p>
+          <div className="portfolioList">
+            {result.portfolio_update.results.map((item) => (
+              <article className="portfolioItem" key={item.listingId}>
+                <div>
+                  <strong>{item.listingName}</strong>
+                  <span>{item.listingId}</span>
+                </div>
+                <span className={`portfolioStatus ${item.status}`}>{item.status}</span>
+                {item.addedText ? <p>{item.addedText}</p> : <p>{item.response}</p>}
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {result.audit_log ? (
         <div className="auditBox">
           <h4>Audit log</h4>
@@ -664,6 +711,26 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
       observation: isRecord(response.audit_log)
         ? `Audit log recorded for ${stringValue(response.audit_log.listingName) ?? "the selected listing"}.`
         : "The simulated page state was handled according to the Supervisor decision."
+    };
+  }
+
+  if (typeof response.requested_listings === "number") {
+    return {
+      title: "Selected managed listing portfolio",
+      status: `${response.requested_listings} listings`,
+      rationale: stringValue(response.selection_rule),
+      observation: stringValue(response.token_safety)
+    };
+  }
+
+  if (typeof response.listing_name === "string" && typeof response.status === "string") {
+    return {
+      title: `${response.listing_name}: ${labelFromSnake(response.status)}`,
+      status: response.status,
+      rationale: Array.isArray(response.selected_actions)
+        ? `Selected actions: ${arrayOfStrings(response.selected_actions).join(" -> ")}.`
+        : undefined,
+      observation: stringValue(response.response)
     };
   }
 

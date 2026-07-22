@@ -27,7 +27,17 @@ function store(): Store {
   return globalStore.__airbnbAgentStore;
 }
 
-export function getSimulatedListingPage(listing: Listing): SimulatedListingPage {
+export function getSimulatedListingPage(listing: Listing, currentDescriptionOverride?: string): SimulatedListingPage {
+  if (typeof currentDescriptionOverride === "string") {
+    const page = {
+      listingId: listing.id,
+      currentDescription: currentDescriptionOverride,
+      updatedAt: new Date().toISOString()
+    };
+    store().pages.set(listing.id, page);
+    return page;
+  }
+
   const existing = store().pages.get(listing.id);
   if (existing) {
     return existing;

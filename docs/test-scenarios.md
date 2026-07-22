@@ -40,6 +40,22 @@ Expected behavior:
 - Restores only the simulated page description from the original dataset row.
 - Writes an audit log.
 
+## Portfolio Sweep
+
+Prompt:
+
+```text
+I manage 8 Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings, update only pages with strong evidence-backed improvements, skip listings where evidence is weak, and give me a per-listing audit summary.
+```
+
+Expected behavior:
+
+- Uses `Input Scope Guard`.
+- Selects the managed demo listings with the richest evidence.
+- Runs the autonomous listing editor separately for each listing.
+- Updates only listings with approved evidence-backed edits.
+- Returns a portfolio result with per-listing status, decision, selected actions, and audit summary.
+
 ## Wi-Fi / Remote Work
 
 Prompt:

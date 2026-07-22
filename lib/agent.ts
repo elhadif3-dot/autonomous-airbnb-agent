@@ -1,5 +1,6 @@
 import {
   getListingById,
+  getManagedDemoListings,
   getPlacesNearListing,
   getReviewsForListing
 } from "@/lib/data";
@@ -26,6 +27,7 @@ import type {
   ExecuteResponse,
   Listing,
   Place,
+  PortfolioListingResult,
   Review,
   SimulatedListingPage,
   SimulatedPageUpdate,
@@ -44,6 +46,7 @@ type Signal = {
 type AgentState = {
   prompt: string;
   listingId: string;
+  currentDescriptionOverride?: string;
   intent: string[];
   selectedActions: string[];
   listing?: Listing;
@@ -75,8 +78,18 @@ const topicKeywords: Record<string, string[]> = {
 };
 
 const MAX_ACTIONS = 12;
+const MAX_PORTFOLIO_LISTINGS = 8;
 
 export async function executeListingAgent(prompt: string): Promise<ExecuteResponse> {
+  return executeListingAgentWithOptions(prompt, {});
+}
+
+type ExecuteOptions = {
+  currentPageDescription?: string;
+  portfolioPageDescriptions?: Record<string, string>;
+};
+
+export async function executeListingAgentWithOptions(prompt: string, options: ExecuteOptions = {}): Promise<ExecuteResponse> {
   const steps: AgentStep[] = [];
 
   try {
@@ -95,6 +108,7 @@ export async function executeListingAgent(prompt: string): Promise<ExecuteRespon
         response: scopeDecision.safeResponse,
         steps,
         page_update: null,
+        portfolio_update: null,
         audit_log: null
       };
     }
@@ -106,8 +120,13 @@ export async function executeListingAgent(prompt: string): Promise<ExecuteRespon
         response: scopeDecision.safeResponse,
         steps,
         page_update: null,
+        portfolio_update: null,
         audit_log: null
       };
+    }
+
+    if (isPortfolioRequest(prompt)) {
+      return executePortfolioAgent(prompt, steps, options.portfolioPageDescriptions ?? {});
     }
 
     const listingId = extractListingId(prompt);
@@ -121,46 +140,14 @@ export async function executeListingAgent(prompt: string): Promise<ExecuteRespon
     const state: AgentState = {
       prompt,
       listingId,
+      currentDescriptionOverride: options.currentPageDescription,
       intent: inferIntent(prompt),
       selectedActions: [],
       reviseCount: 0,
       requireMoreEvidence: false
     };
 
-    for (let iteration = 0; iteration < MAX_ACTIONS; iteration += 1) {
-      const nextAction = await decideNextAction(state);
-      const parsedAction = AgentNextActionSchema.parse(nextAction);
-
-      steps.push(
-        step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
-          ...parsedAction,
-          action_number: iteration + 1,
-          llm_mode: process.env.LLM_MODE === "live" ? "live_requested" : "mock"
-        })
-      );
-
-      state.selectedActions.push(parsedAction.next_action);
-
-      const shouldContinue = await runAction(parsedAction, state, steps);
-      if (!shouldContinue || parsedAction.should_stop) {
-        break;
-      }
-    }
-
-    if (!state.listing) {
-      return errorResponse(state.stopReason ?? `Listing id ${state.listingId} was not found.`, steps);
-    }
-
-    const response = finalResponse(state);
-
-    return {
-      status: "ok",
-      error: null,
-      response,
-      steps,
-      page_update: state.pageUpdate ?? null,
-      audit_log: state.auditLog ?? null
-    };
+    return runSingleListingAgent(state, steps);
   } catch (error) {
     return {
       status: "error",
@@ -168,9 +155,135 @@ export async function executeListingAgent(prompt: string): Promise<ExecuteRespon
       response: null,
       steps,
       page_update: null,
+      portfolio_update: null,
       audit_log: null
     };
   }
+}
+
+async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Promise<ExecuteResponse> {
+  for (let iteration = 0; iteration < MAX_ACTIONS; iteration += 1) {
+    const nextAction = await decideNextAction(state);
+    const parsedAction = AgentNextActionSchema.parse(nextAction);
+
+    steps.push(
+      step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
+        ...parsedAction,
+        action_number: iteration + 1,
+        llm_mode: process.env.LLM_MODE === "live" ? "live_requested" : "mock"
+      })
+    );
+
+    state.selectedActions.push(parsedAction.next_action);
+
+    const shouldContinue = await runAction(parsedAction, state, steps);
+    if (!shouldContinue || (parsedAction.should_stop && parsedAction.next_action === "stop_without_action")) {
+      break;
+    }
+  }
+
+  if (!state.listing) {
+    return errorResponse(state.stopReason ?? `Listing id ${state.listingId} was not found.`, steps);
+  }
+
+  return {
+    status: "ok",
+    error: null,
+    response: finalResponse(state),
+    steps,
+    page_update: state.pageUpdate ?? null,
+    portfolio_update: null,
+    audit_log: state.auditLog ?? null
+  };
+}
+
+async function executePortfolioAgent(
+  prompt: string,
+  steps: AgentStep[],
+  portfolioPageDescriptions: Record<string, string>
+): Promise<ExecuteResponse> {
+  const managedListings = await getManagedDemoListings(MAX_PORTFOLIO_LISTINGS);
+  steps.push(step("Portfolio Manager", "Select the manager-owned demo listings with the richest evidence.", prompt, {
+    requested_listings: managedListings.length,
+    selection_rule: "Highest Airbnb review count plus nearby Google Places coverage.",
+    listings: managedListings.map((listing) => ({
+      listing_id: listing.id,
+      listing_name: listing.name,
+      reviews: listing.numberOfReviews,
+      nearby_places: listing.nearbyPlacesCount
+    })),
+    token_safety: "The portfolio request reuses the same deterministic scope guard and stops per listing when evidence is insufficient."
+  }));
+
+  const results: PortfolioListingResult[] = [];
+
+  for (const listing of managedListings) {
+    const listingSteps: AgentStep[] = [];
+    const listingPrompt = `Selected listing id: ${listing.id}\n${portfolioPromptForListing(prompt, listing.name)}`;
+    const state: AgentState = {
+      prompt: listingPrompt,
+      listingId: listing.id,
+      currentDescriptionOverride: portfolioPageDescriptions[listing.id],
+      intent: inferIntent(listingPrompt),
+      selectedActions: [],
+      reviseCount: 0,
+      requireMoreEvidence: false
+    };
+    const result = await runSingleListingAgent(state, listingSteps);
+    const decision = result.audit_log?.decision ?? null;
+    const portfolioResult: PortfolioListingResult = {
+      listingId: listing.id,
+      listingName: listing.name,
+      status: result.status === "error" ? "error" : result.page_update?.status ?? "not_executed",
+      decision,
+      response: result.response ?? result.error,
+      updatedField: result.page_update?.field ?? null,
+      addedText: result.page_update?.addedText ?? null,
+      before: result.page_update?.before ?? null,
+      after: result.page_update?.after ?? null,
+      selectedActions: result.audit_log?.selectedActions ?? selectedActionsFromSteps(listingSteps)
+    };
+    results.push(portfolioResult);
+
+    steps.push(step("Portfolio Listing Run", "Run the autonomous listing editor on one managed listing.", listingPrompt, {
+      listing_id: listing.id,
+      listing_name: listing.name,
+      status: portfolioResult.status,
+      decision,
+      selected_actions: portfolioResult.selectedActions,
+      response: portfolioResult.response,
+      page_update: result.page_update
+        ? {
+            status: result.page_update.status,
+            field: result.page_update.field,
+            addedText: result.page_update.addedText
+          }
+        : null
+    }));
+  }
+
+  const executed = results.filter((result) => result.status === "executed").length;
+  const skipped = results.length - executed;
+  const portfolioUpdate = {
+    requestedListings: results.length,
+    executed,
+    skipped,
+    results
+  };
+
+  return {
+    status: "ok",
+    error: null,
+    response: [
+      `Portfolio request completed for ${results.length} managed Lisbon listings.`,
+      `${executed} simulated listing pages were updated; ${skipped} were left unchanged because the agent did not have a safe approved edit.`,
+      "Each listing used its own evidence check, Supervisor decision, and read-only data boundaries. No live Airbnb account was accessed."
+    ].join("\n"),
+    steps,
+    page_update: null,
+    portfolio_update: portfolioUpdate,
+    audit_log: null
+  };
 }
 
 async function decideNextAction(state: AgentState): Promise<AgentNextAction> {
@@ -185,7 +298,102 @@ async function decideNextAction(state: AgentState): Promise<AgentNextAction> {
     mockResponse
   });
 
-  return AgentNextActionSchema.parse(response);
+  return enforceActionPreconditions(state, AgentNextActionSchema.parse(response));
+}
+
+function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction): AgentNextAction {
+  if (!state.listing && proposed.next_action !== "get_listing_data") {
+    return action(
+      "get_listing_data",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "Runtime preconditions require loading the selected listing before any page, review, Places, restore, or Supervisor action.",
+      "Listing data is missing."
+    );
+  }
+
+  if (state.listing && !state.claims && !isRestoreRequest(state) && proposed.next_action !== "extract_claims") {
+    return action(
+      "extract_claims",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "Runtime preconditions require extracting current page claims before searching for editable gaps.",
+      "Current listing claims are missing."
+    );
+  }
+
+  if (state.claims && !state.reviews && proposed.next_action !== "search_reviews") {
+    return action(
+      "search_reviews",
+      { listing_id: state.listingId, topics: state.intent, top_k: state.requireMoreEvidence ? 12 : 6, runtime_override_from: proposed.next_action },
+      "Airbnb guest reviews are the primary evidence source before drafting any page edit.",
+      "Review evidence is missing."
+    );
+  }
+
+  if (
+    state.reviews &&
+    needsGooglePlaces(state) &&
+    !state.places &&
+    proposed.next_action !== "get_google_places"
+  ) {
+    return action(
+      "get_google_places",
+      { listing_id: state.listingId, radius_km: 2, runtime_override_from: proposed.next_action },
+      "This request needs nearby Lisbon context, so Google Places context must be observed before detecting final signals.",
+      "Google Places context is missing."
+    );
+  }
+
+  if (
+    state.reviews &&
+    (!needsGooglePlaces(state) || state.places) &&
+    !state.signals &&
+    proposed.next_action !== "detect_guest_signals"
+  ) {
+    return action(
+      "detect_guest_signals",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "The agent has enough observations to detect guest signals and decide whether an editable gap exists.",
+      "Guest signals are missing."
+    );
+  }
+
+  if (state.signals && !state.proposal && proposed.next_action !== "draft_listing_edit") {
+    return action(
+      "draft_listing_edit",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "Detected signals must be turned into a narrow proposal, a request for more evidence, or a stop decision.",
+      "No edit proposal exists."
+    );
+  }
+
+  if (state.listing && isRestoreRequest(state) && !state.proposal && proposed.next_action !== "restore_original_page") {
+    return action(
+      "restore_original_page",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "The manager asked to undo the simulated edit, so the legal next action is restoring from the original dataset text.",
+      "A restore proposal is needed."
+    );
+  }
+
+  if (state.proposal && !state.supervisor && proposed.next_action !== "submit_to_supervisor") {
+    return action(
+      "submit_to_supervisor",
+      { listing_id: state.listingId, runtime_override_from: proposed.next_action },
+      "A proposed page action must be reviewed by the Supervisor / Control Agent before execution.",
+      "Supervisor decision is missing."
+    );
+  }
+
+  if (state.supervisor?.decision === "Approve" && !state.auditLog && proposed.next_action !== "prepare_edit_proposal") {
+    return action(
+      "prepare_edit_proposal",
+      { listing_id: state.listingId, execute: true, runtime_override_from: proposed.next_action },
+      "Supervisor approved the proposal, so the only legal next action is execution in the simulated page plus audit logging.",
+      "Approved action still needs execution."
+    );
+  }
+
+  return proposed;
 }
 
 function chooseNextAction(state: AgentState): AgentNextAction {
@@ -263,7 +471,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       }
 
       state.listing = listing;
-      state.page = getSimulatedListingPage(listing);
+      state.page = getSimulatedListingPage(listing, state.currentDescriptionOverride);
       steps.push(step("Listing Tools", "Retrieve the selected listing and simulated page state.", JSON.stringify(actionRequest.tool_input), {
         found: true,
         listing_id: listing.id,
@@ -810,6 +1018,30 @@ function isRestoreRequest(state: AgentState): boolean {
   return state.intent.includes("restore_original");
 }
 
+function isPortfolioRequest(prompt: string): boolean {
+  return /\b(all|every|portfolio|managed listings|managed properties|properties I manage|listings I manage)\b/i.test(prompt) ||
+    /כל הנכסים|כל הדירות|כל הרשימות|בבעלותי|שבבעלותי/.test(prompt);
+}
+
+function portfolioPromptForListing(prompt: string, listingName: string): string {
+  if (inferIntent(prompt).includes("restore_original")) {
+    return `Restore "${listingName}" to the original dataset text if the simulated page was edited.`;
+  }
+
+  return [
+    `For "${listingName}", autonomously review the current simulated Airbnb page against guest reviews and nearby context.`,
+    "If there is an evidence-backed improvement, update only the allowed simulated listing-page text.",
+    "If evidence is weak or the page is already aligned, stop without editing and explain why.",
+    `Original manager request: ${prompt}`
+  ].join(" ");
+}
+
+function selectedActionsFromSteps(steps: AgentStep[]): string[] {
+  return steps
+    .map((item) => (typeof (item.response as { next_action?: unknown })?.next_action === "string" ? (item.response as { next_action: string }).next_action : null))
+    .filter((value): value is string => Boolean(value));
+}
+
 function stopProposal(listingId: string, reason = "No strong, editable gap was found."): EditProposal {
   return {
     action: "stop_without_action",
@@ -871,6 +1103,7 @@ function errorResponse(error: string, steps: AgentStep[]): ExecuteResponse {
     response: null,
     steps,
     page_update: null,
+    portfolio_update: null,
     audit_log: null
   };
 }

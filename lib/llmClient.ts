@@ -37,17 +37,12 @@ export async function callLlmJson<T>({ module, messages, mockResponse }: LlmJson
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      model: process.env.LLMOD_TEXT_MODEL || DEFAULT_TEXT_MODEL,
-      messages,
-      temperature: Number(process.env.LLM_TEMPERATURE ?? 0),
-      max_tokens: Number(process.env.LLM_MAX_TOKENS ?? 450),
-      response_format: { type: "json_object" }
-    })
+    body: JSON.stringify(buildChatBody(messages))
   });
 
   if (!response.ok) {
-    throw new Error(`LLM request failed for ${module}: HTTP ${response.status}.`);
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`LLM request failed for ${module}: HTTP ${response.status}. ${errorText.slice(0, 240)}`);
   }
 
   const payload = (await response.json()) as ChatCompletionResponse;
@@ -59,8 +54,41 @@ export async function callLlmJson<T>({ module, messages, mockResponse }: LlmJson
   try {
     return JSON.parse(content) as T;
   } catch {
-    throw new Error(`LLM returned invalid JSON for ${module}.`);
+    const extracted = extractJsonObject(content);
+    if (extracted) {
+      try {
+        return JSON.parse(extracted) as T;
+      } catch {
+        return mockResponse;
+      }
+    }
+
+    return mockResponse;
   }
+}
+
+function buildChatBody(messages: LlmMessage[]) {
+  const body: Record<string, unknown> = {
+    model: process.env.LLMOD_TEXT_MODEL || DEFAULT_TEXT_MODEL,
+    messages: [
+      ...messages,
+      {
+        role: "user",
+        content: "Return only valid JSON. Do not include markdown, prose, or code fences."
+      }
+    ],
+    max_tokens: Number(process.env.LLM_MAX_TOKENS ?? 450)
+  };
+
+  if (process.env.LLM_TEMPERATURE) {
+    body.temperature = Number(process.env.LLM_TEMPERATURE);
+  }
+
+  if (process.env.LLM_RESPONSE_FORMAT === "json_object") {
+    body.response_format = { type: "json_object" };
+  }
+
+  return body;
 }
 
 function chatCompletionsUrl(baseUrl: string): string {
@@ -87,4 +115,17 @@ function isLiveModuleEnabled(module: string): boolean {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .includes(moduleKey);
+}
+
+function extractJsonObject(value: string): string | null {
+  const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1] ?? value;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+
+  return candidate.slice(start, end + 1);
 }

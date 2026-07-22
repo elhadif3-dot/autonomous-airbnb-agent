@@ -816,6 +816,65 @@ button {
   margin-bottom: 8px;
 }
 
+.portfolioList {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.portfolioItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--soft);
+}
+
+.portfolioItem strong,
+.portfolioItem span {
+  display: block;
+}
+
+.portfolioItem span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.portfolioItem p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #333;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.portfolioStatus {
+  align-self: start;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.portfolioStatus.executed {
+  background: #e9f7f1;
+  color: var(--green);
+}
+
+.portfolioStatus.not_executed {
+  background: #fff6df;
+  color: var(--gold);
+}
+
+.portfolioStatus.error {
+  background: #ffebee;
+  color: var(--red);
+}
+
 .stepList {
   display: grid;
   gap: 10px;

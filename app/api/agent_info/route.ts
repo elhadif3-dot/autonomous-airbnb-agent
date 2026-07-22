@@ -3,7 +3,7 @@ export function GET() {
     description:
       "An autonomous demo agent for Lisbon short-term-rental managers. It compares a simulated Airbnb listing page with real guest reviews and nearby Google Places context, proposes narrow page edits, and executes them only after Supervisor approval.",
     purpose:
-      "Keep a Lisbon Airbnb listing page aligned with real guest experience while avoiding invented claims, live scraping, and unnecessary LLM calls.",
+      "Keep Lisbon Airbnb listing pages aligned with real guest experience while avoiding invented claims, live scraping, out-of-scope requests, and unnecessary LLM calls.",
     prompt_template: {
       template:
         "Selected listing id: <listing_id>\nHi, I manage several Airbnb listings in Lisbon. Handle this listing end to end: inspect the current simulated page, choose only the tools needed, use guest reviews as primary evidence, use Google Places only as supporting context when relevant, update only allowed page text if Supervisor approves, and record an audit log."
@@ -52,6 +52,56 @@ export function GET() {
                 field: "description",
                 liveAirbnbUpdated: false
               }
+            }
+          }
+        ]
+      },
+      {
+        prompt:
+          "I manage 8 Lisbon Airbnb listings in this demo portfolio. Autonomously review all managed listings, update only pages with strong evidence-backed improvements, skip listings where evidence is weak, and give me a per-listing audit summary.",
+        full_response:
+          "Portfolio request completed. The agent selected the evidence-rich managed listings, ran each listing independently, updated only approved simulated page text, and reported per-listing decisions.",
+        steps: [
+          {
+            module: "Input Scope Guard",
+            prompt: {
+              system_prompt: "Check whether the request belongs to the agent's allowed domain before using retrieval or LLM.",
+              user_prompt: "Portfolio manager request for all managed Lisbon Airbnb listings."
+            },
+            response: {
+              in_scope: true,
+              category: "listing_page_management",
+              token_safety: "No LLM, Review RAG, or Google Places calls happen before this guard passes."
+            }
+          },
+          {
+            module: "Portfolio Manager",
+            prompt: {
+              system_prompt: "Select the manager-owned demo listings with the richest evidence.",
+              user_prompt: "All managed listings request."
+            },
+            response: {
+              requested_listings: 8,
+              selection_rule: "Highest Airbnb review count plus nearby Google Places coverage."
+            }
+          }
+        ]
+      },
+      {
+        prompt: "Selected listing id: 45855270\nFind me car tires in Lisbon.",
+        full_response:
+          "I don't know how to complete that request with my allowed tools. No LLM, RAG, Google Places, or page edit was used.",
+        steps: [
+          {
+            module: "Input Scope Guard",
+            prompt: {
+              system_prompt: "Check whether the request belongs to the agent's allowed domain before using retrieval or LLM.",
+              user_prompt: "Find me car tires in Lisbon."
+            },
+            response: {
+              in_scope: false,
+              category: "out_of_scope",
+              reason: "The request is unrelated to Lisbon Airbnb listing-page management."
             }
           }
         ]

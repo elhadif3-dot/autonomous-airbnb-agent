@@ -53,7 +53,28 @@ export type ExecuteResponse = {
   response: string | null;
   steps: AgentStep[];
   page_update?: SimulatedPageUpdate | null;
+  portfolio_update?: PortfolioUpdate | null;
   audit_log?: AuditLogEntry | null;
+};
+
+export type PortfolioListingResult = {
+  listingId: string;
+  listingName: string;
+  status: "executed" | "not_executed" | "error";
+  decision: SupervisorDecision | null;
+  response: string | null;
+  updatedField: "description" | null;
+  addedText: string | null;
+  before: string | null;
+  after: string | null;
+  selectedActions: string[];
+};
+
+export type PortfolioUpdate = {
+  requestedListings: number;
+  executed: number;
+  skipped: number;
+  results: PortfolioListingResult[];
 };
 
 export type SupervisorDecision = "Approve" | "Revise" | "Block";

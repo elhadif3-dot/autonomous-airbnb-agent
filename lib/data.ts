@@ -73,6 +73,17 @@ export async function getListings(limit?: number): Promise<Listing[]> {
   return typeof limit === "number" ? listingsCache.slice(0, limit) : listingsCache;
 }
 
+export async function getManagedDemoListings(limit = 8): Promise<Listing[]> {
+  const listings = await getListings();
+  return listings
+    .filter((listing) => listing.numberOfReviews >= 40 && listing.description.length > 180)
+    .sort(
+      (a, b) =>
+        b.numberOfReviews + b.nearbyPlacesCount / 40 - (a.numberOfReviews + a.nearbyPlacesCount / 40)
+    )
+    .slice(0, limit);
+}
+
 export async function getListingById(id: string): Promise<Listing | null> {
   const listings = await getListings();
   return listings.find((listing) => listing.id === id) ?? null;

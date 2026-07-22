@@ -23,6 +23,7 @@ The agent follows a ReAct-style loop:
 Actual page edits are executed only after `Supervisor / Control Agent` approval.
 Approved edits update the simulated listing page state and create an audit-log entry.
 Manager prompts can also ask the agent to restore the simulated page to the original dataset text; that restore path uses a different action trace and still requires Supervisor approval.
+Portfolio prompts can ask the agent to review all managed demo listings. The runtime selects the evidence-rich manager portfolio, runs each listing independently, updates only approved simulated pages, and returns a per-listing audit summary.
 
 ## Required API
 
@@ -63,3 +64,4 @@ Open `http://localhost:3000`.
 The project is currently LLM-ready but runs in `LLM_MODE=mock`.
 No LLMod.ai calls are made unless `LLM_MODE=live` is explicitly enabled and the project owner approves token usage.
 Use `LLM_LIVE_MODULES=agent,supervisor` to enable both live decision modules, or restrict this list during testing to reduce spend.
+For low-cost validation, start with `LLM_LIVE_MODULES=agent` and a restore prompt before running a full evidence-retrieval edit.
