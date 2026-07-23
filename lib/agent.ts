@@ -37,6 +37,7 @@ import type {
   Place,
   PortfolioListingResult,
   Review,
+  ReviewCoverageSnapshot,
   SimulatedListingPage,
   SimulatedPageUpdate,
   SupervisorDecision
@@ -78,6 +79,8 @@ type AgentState = {
   supervisor?: SupervisorOutput;
   pageUpdate?: SimulatedPageUpdate | null;
   auditLog?: AuditLogEntry | null;
+  reviewCoverageState?: ReviewCoverageSnapshot;
+  nextReviewCoverageState?: ReviewCoverageSnapshot;
   reviseCount: number;
   requireMoreEvidence: boolean;
   stopReason?: string;
@@ -132,6 +135,7 @@ type ExecuteOptions = {
   currentPageDescription?: string;
   previousPageDescription?: string;
   portfolioPageDescriptions?: Record<string, string>;
+  reviewCoverageState?: ReviewCoverageSnapshot;
   sessionId?: string;
 };
 
@@ -176,6 +180,7 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
         prompt,
         steps,
         options.portfolioPageDescriptions ?? {},
+        options.reviewCoverageState,
         options.sessionId ?? "api-default-session"
       );
     }
@@ -194,6 +199,7 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
       sessionId: options.sessionId ?? "api-default-session",
       currentDescriptionOverride: options.currentPageDescription,
       previousDescriptionOverride: options.previousPageDescription,
+      reviewCoverageState: options.reviewCoverageState,
       intent: inferIntent(prompt),
       selectedActions: [],
       observations: [],
@@ -273,6 +279,7 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
     portfolio_update: null,
     evidence_report: state.evidenceReport ?? null,
     manager_recommendations: state.managerRecommendations ?? null,
+    review_coverage_state: state.nextReviewCoverageState ?? state.reviewCoverageState ?? null,
     audit_log: state.auditLog ?? null
   };
 }
@@ -281,6 +288,7 @@ async function executePortfolioAgent(
   prompt: string,
   steps: AgentStep[],
   portfolioPageDescriptions: Record<string, string>,
+  reviewCoverageState: ReviewCoverageSnapshot | undefined,
   sessionId: string
 ): Promise<ExecuteResponse> {
   const managedListings = await getManagedDemoListings(MAX_PORTFOLIO_LISTINGS);
@@ -306,6 +314,7 @@ async function executePortfolioAgent(
       listingId: listing.id,
       sessionId: `${sessionId}:portfolio`,
       currentDescriptionOverride: portfolioPageDescriptions[listing.id],
+      reviewCoverageState,
       intent: inferIntent(listingPrompt),
       selectedActions: [],
       observations: [],
@@ -366,6 +375,7 @@ async function executePortfolioAgent(
     steps,
     page_update: null,
     portfolio_update: portfolioUpdate,
+    review_coverage_state: reviewCoverageState ?? null,
     audit_log: null
   };
 }
@@ -1349,8 +1359,10 @@ async function runAdaptiveReviewSearch(
     listingId: state.listing.id,
     scopeKey,
     reviews: scopedReviews.length > 0 ? scopedReviews : localReviews,
-    windowSize: plan.coverageWindowSize
+    windowSize: plan.coverageWindowSize,
+    snapshot: state.nextReviewCoverageState ?? state.reviewCoverageState
   });
+  state.nextReviewCoverageState = coverage.snapshot;
 
   const mergedByKey = new Map<string, Review>();
   for (const review of coverage.reviews) {

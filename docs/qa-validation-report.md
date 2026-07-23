@@ -52,6 +52,7 @@ Result: 20/20 scenarios passed.
 - Updated capability response to recognize the product name `FixGap AI`.
 - Fixed `stop_without_action` flow so the agent stops cleanly instead of submitting a non-edit to Supervisor.
 - Canonicalized broad review-alignment coverage keys so paraphrased follow-up requests continue through additional review windows.
+- Added serialized `review_coverage_state` round-tripping through `/api/execute`, the UI, and the QA runner so repeated review audits continue correctly on Vercel serverless deployments.
 - Refined guardrail validation so existing pricing language copied from the original dataset does not block safe description rewrites, while new pricing actions remain blocked.
 
 ## Requirement Check

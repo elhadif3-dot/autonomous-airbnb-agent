@@ -56,8 +56,19 @@ export type ExecuteResponse = {
   portfolio_update?: PortfolioUpdate | null;
   manager_recommendations?: ManagerRecommendation[] | null;
   evidence_report?: EvidenceReport | null;
+  review_coverage_state?: ReviewCoverageSnapshot | null;
   audit_log?: AuditLogEntry | null;
 };
+
+export type ReviewCoverageSnapshot = Record<
+  string,
+  {
+    cursor: number;
+    coveredIds: string[];
+    completed: boolean;
+    updatedAt: string;
+  }
+>;
 
 export type PortfolioListingResult = {
   listingId: string;

@@ -2,6 +2,7 @@ const baseUrl = (process.argv[2] || process.env.QA_BASE_URL || "http://127.0.0.1
 const sessionId = `qa-${Date.now()}`;
 
 const listingState = new Map();
+let reviewCoverageState = {};
 const summary = [];
 
 const ids = {
@@ -105,7 +106,8 @@ async function runScenario(scenario) {
 
   const body = {
     prompt,
-    session_id: sessionId
+    session_id: sessionId,
+    review_coverage_state: reviewCoverageState
   };
 
   if (state) {
@@ -126,6 +128,9 @@ async function runScenario(scenario) {
       state.history.push(payload.page_update.before);
     }
     state.current = payload.page_update.after;
+  }
+  if (payload.review_coverage_state) {
+    reviewCoverageState = payload.review_coverage_state;
   }
 
   const failures = [];

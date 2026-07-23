@@ -1,4 +1,5 @@
 import type { Review } from "@/lib/types";
+import type { ReviewCoverageSnapshot } from "@/lib/types";
 
 type CoverageState = {
   cursor: number;
@@ -17,6 +18,7 @@ type ReviewCoverageInput = {
   scopeKey: string;
   reviews: Review[];
   windowSize: number;
+  snapshot?: ReviewCoverageSnapshot;
 };
 
 export type ReviewCoverageResult = {
@@ -29,6 +31,7 @@ export type ReviewCoverageResult = {
   cursorStart: number;
   cursorEnd: number;
   completed: boolean;
+  snapshot: ReviewCoverageSnapshot;
 };
 
 const globalStore = globalThis as typeof globalThis & {
@@ -48,7 +51,8 @@ function store(): Store {
 export function selectNextReviewCoverageWindow(input: ReviewCoverageInput): ReviewCoverageResult {
   const reviews = uniqueReviews(input.reviews);
   const key = coverageKey(input.sessionId, input.listingId, input.scopeKey);
-  const current = store().scopes.get(key) ?? {
+  const activeStore = input.snapshot ? deserializeSnapshot(input.snapshot) : store();
+  const current = activeStore.scopes.get(key) ?? {
     cursor: 0,
     coveredIds: new Set<string>(),
     completed: false,
@@ -66,7 +70,7 @@ export function selectNextReviewCoverageWindow(input: ReviewCoverageInput): Revi
       completed: true,
       updatedAt: new Date().toISOString()
     };
-    store().scopes.set(key, empty);
+    activeStore.scopes.set(key, empty);
     return {
       scopeKey: input.scopeKey,
       reviews: [],
@@ -76,7 +80,8 @@ export function selectNextReviewCoverageWindow(input: ReviewCoverageInput): Revi
       coveredAfterCount: 0,
       cursorStart: 0,
       cursorEnd: 0,
-      completed: true
+      completed: true,
+      snapshot: serializeStore(activeStore)
     };
   }
 
@@ -104,7 +109,7 @@ export function selectNextReviewCoverageWindow(input: ReviewCoverageInput): Revi
   current.cursor = cursor;
   current.completed = current.coveredIds.size >= totalReviewsInScope;
   current.updatedAt = new Date().toISOString();
-  store().scopes.set(key, current);
+  activeStore.scopes.set(key, current);
 
   return {
     scopeKey: input.scopeKey,
@@ -115,7 +120,8 @@ export function selectNextReviewCoverageWindow(input: ReviewCoverageInput): Revi
     coveredAfterCount: Math.min(current.coveredIds.size, totalReviewsInScope),
     cursorStart: start,
     cursorEnd: cursor,
-    completed: current.completed
+    completed: current.completed,
+    snapshot: serializeStore(activeStore)
   };
 }
 
@@ -151,4 +157,34 @@ function coverageKey(sessionId: string, listingId: string, scopeKey: string): st
 
 function safeKey(value: string): string {
   return value.replace(/[^a-zA-Z0-9_.:-]+/g, "_").slice(0, 180);
+}
+
+function deserializeSnapshot(snapshot: ReviewCoverageSnapshot): Store {
+  return {
+    scopes: new Map(
+      Object.entries(snapshot).map(([key, value]) => [
+        key,
+        {
+          cursor: Number.isFinite(value.cursor) ? value.cursor : 0,
+          coveredIds: new Set(value.coveredIds ?? []),
+          completed: Boolean(value.completed),
+          updatedAt: value.updatedAt || new Date().toISOString()
+        }
+      ])
+    )
+  };
+}
+
+function serializeStore(value: Store): ReviewCoverageSnapshot {
+  return Object.fromEntries(
+    [...value.scopes.entries()].map(([key, item]) => [
+      key,
+      {
+        cursor: item.cursor,
+        coveredIds: [...item.coveredIds],
+        completed: item.completed,
+        updatedAt: item.updatedAt
+      }
+    ])
+  );
 }

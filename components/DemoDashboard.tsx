@@ -29,7 +29,7 @@ import {
   Wifi,
   Wind
 } from "lucide-react";
-import type { AgentStep, ExecuteResponse, Listing, Review } from "@/lib/types";
+import type { AgentStep, ExecuteResponse, Listing, Review, ReviewCoverageSnapshot } from "@/lib/types";
 
 type DemoListing = Listing & {
   recentReviews: Review[];
@@ -118,6 +118,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
   const [isLoadingListing, setIsLoadingListing] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
   const [descriptionHistory, setDescriptionHistory] = useState<Record<string, string[]>>({});
+  const [reviewCoverageState, setReviewCoverageState] = useState<ReviewCoverageSnapshot>({});
   const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
 
   const selectedListing = useMemo(
@@ -179,6 +180,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
           current_page_description: currentDescription,
           previous_page_description: previousPageDescription,
           portfolio_page_descriptions: portfolioPageDescriptions,
+          review_coverage_state: reviewCoverageState,
           session_id: demoSessionId
         })
       });
@@ -194,6 +196,9 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       }))) as ExecuteResponse;
 
       setResult(payload);
+      if (payload.review_coverage_state) {
+        setReviewCoverageState(payload.review_coverage_state);
+      }
       if (payload.page_update?.status === "executed" && payload.page_update.after) {
         const proposalAction = getProposalAction(payload);
         const listingId = payload.page_update.listingId;
@@ -273,6 +278,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       ...current,
       [selectedListing.id]: []
     }));
+    setReviewCoverageState({});
     setResult(null);
   }
 

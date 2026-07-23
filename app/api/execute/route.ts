@@ -1,5 +1,5 @@
 import { executeListingAgentWithOptions } from "@/lib/agent";
-import type { ExecuteResponse } from "@/lib/types";
+import type { ExecuteResponse, ReviewCoverageSnapshot } from "@/lib/types";
 
 export async function POST(request: Request) {
   let body: {
@@ -7,6 +7,7 @@ export async function POST(request: Request) {
     current_page_description?: unknown;
     previous_page_description?: unknown;
     portfolio_page_descriptions?: unknown;
+    review_coverage_state?: unknown;
     session_id?: unknown;
   };
 
@@ -47,6 +48,9 @@ export async function POST(request: Request) {
       portfolioPageDescriptions: isStringRecord(body.portfolio_page_descriptions)
         ? body.portfolio_page_descriptions
         : undefined,
+      reviewCoverageState: isReviewCoverageSnapshot(body.review_coverage_state)
+        ? body.review_coverage_state
+        : undefined,
       sessionId: typeof body.session_id === "string" ? body.session_id : undefined
     });
     return Response.json(result, { status: result.status === "error" ? 400 : 200 });
@@ -70,4 +74,24 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   }
 
   return Object.values(value).every((item) => typeof item === "string");
+}
+
+function isReviewCoverageSnapshot(value: unknown): value is ReviewCoverageSnapshot {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  return Object.values(value).every((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return false;
+    }
+    const candidate = item as Record<string, unknown>;
+    return (
+      typeof candidate.cursor === "number" &&
+      Array.isArray(candidate.coveredIds) &&
+      candidate.coveredIds.every((id) => typeof id === "string") &&
+      typeof candidate.completed === "boolean" &&
+      typeof candidate.updatedAt === "string"
+    );
+  });
 }
