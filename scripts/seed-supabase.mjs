@@ -1,5 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { loadLocalEnv } from "./env.mjs";
+
+loadLocalEnv();
 
 const root = process.cwd();
 const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, "");
