@@ -1,49 +1,81 @@
+![FixGap AI banner](public/fixgap-readme-banner.svg)
+
+<p align="center">
+  <img alt="Vercel" src="https://img.shields.io/badge/VERCEL-111827?style=for-the-badge&amp;logo=vercel&amp;logoColor=white">
+  <img alt="ReAct Agent" src="https://img.shields.io/badge/REACT%20AGENT-FF385C?style=for-the-badge">
+  <img alt="LLMod.ai" src="https://img.shields.io/badge/LLMOD.AI-7C3AED?style=for-the-badge">
+  <img alt="GPT 5.4 Mini" src="https://img.shields.io/badge/GPT--5.4--MINI-2563EB?style=for-the-badge">
+  <img alt="Supabase" src="https://img.shields.io/badge/SUPABASE-16A34A?style=for-the-badge&amp;logo=supabase&amp;logoColor=white">
+  <img alt="Pinecone" src="https://img.shields.io/badge/PINECONE-0F766E?style=for-the-badge">
+  <img alt="Next.js" src="https://img.shields.io/badge/NEXT.JS-111827?style=for-the-badge&amp;logo=nextdotjs&amp;logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TYPESCRIPT-3178C6?style=for-the-badge&amp;logo=typescript&amp;logoColor=white">
+</p>
+
 # FixGap AI
 
-Demo implementation for an autonomous AI agent that helps a Lisbon short-term-rental manager keep simulated Airbnb listing pages aligned with real guest experience.
+**Autonomous Lisbon Airbnb Listing Editor**
 
-The project uses prepared offline data only:
+FixGap AI is an autonomous AI agent that keeps simulated short-term-rental listing pages aligned with real guest experience. It helps a Lisbon property manager detect gaps between the current listing page, Airbnb guest reviews, and nearby Google Places context, then safely update only the allowed simulated listing-page text.
 
-- `lisbon_listings_final_with_pois.csv` as structured listing data
-- `lisbon_reviews_final_with_pois.csv` as the main guest-review evidence source
-- `lisbon_google_places_filtered.csv` as nearby environmental context
+The system does not access a live Airbnb account, scrape websites, change prices, answer private guest messages, or edit guest reviews. Approved updates are written only to the demo listing page and are recorded in Supabase audit logs.
 
-No live Airbnb account is accessed, no scraping is performed, and all page updates are applied only inside the demo environment.
-The listing page initially renders from the prepared Airbnb dataset. Agent edits are session-level simulated page updates; refreshing/re-entering the app starts again from the dataset state.
-The UI exposes the full prepared listing catalog for selection. The recommended demo flow reviews one selected listing at a time so the action trace stays inspectable and clearly tied to the chosen page.
+Supabase is the primary runtime database. Approved simulated listing-page updates and audit logs persist in Supabase, so refreshing the app does not inherently remove an approved update. The explicit `Reset Page` demo control restores listing state when needed.
 
-Live LLM calls are disabled by default. The code runs in mock mode unless token usage is explicitly approved and enabled.
-Every request first passes a deterministic scope guard. Out-of-scope requests stop before LLM, Review RAG, Google Places, or page-edit tools are used.
-Review RAG uses adaptive, time-boxed topic expansion plus session-level review coverage: the agent can run multiple focused review searches, merge unique evidence, add a new unseen review window on repeated requests, and stop when it has enough support or reaches the configured review-search budget.
+## How It Works
+
+The main agent follows a ReAct-style loop:
+
+```text
+Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop
+```
+
+`Autonomous Listing Editor Agent` receives a property-manager request, chooses relevant tools dynamically, observes evidence, updates its state, and decides whether to draft an edit, ask for more evidence, stop without action, or submit a proposal.
+
+`Supervisor / Control Agent` reviews proposed page updates before execution. It can approve, revise, or block an action, so the agent can complete end-to-end tasks while keeping edits narrow, evidence-backed, and inside the simulated page boundary.
 
 ## Architecture
 
-The agent follows a ReAct-style loop:
+![FixGap AI model architecture](public/model-architecture.png)
 
-`Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop`
+## Data & Evidence
 
-Actual page edits are executed only after `Supervisor / Control Agent` approval.
-Approved edits update the simulated listing page state and create an audit-log entry through the runtime state layer. When Supabase is configured, Supabase is the primary database for structured listing rows, simulated page state, and audit logs.
-Manager prompts can ask the agent to restore the simulated page to the previous in-session version. The separate `Reset Page` control restores the original dataset text and clears session history.
-Copy-polish prompts can ask the agent to rewrite only the current description wording. That action does not call Review RAG or Google Places; it preserves existing facts, place names, ratings, distances, and evidence-backed notes.
-Manager insight prompts can ask what fixable property or operations issues guests mention. That action returns recommendations only; it does not edit the listing page and does not require live Airbnb access.
-Evidence-only prompts can ask for more review examples about a suspected issue. That action searches the review index and returns a read-only evidence report without Google Places, Supervisor approval, or page edits.
-Nearby-place prompts may specify a distance such as `within about 1 km`; Google Places results are filtered to that radius and remain supporting context rather than primary guest-experience proof.
+- **50 final Lisbon listings** selected for richer Airbnb review coverage and nearby-place context.
+- **Airbnb guest reviews** are the primary evidence source and are retrieved through Pinecone RAG.
+- **Google Places** provides supporting environmental context such as nearby place names, ratings, review counts, categories, and approximate distance.
+- **Listing page state and audit logs** persist in Supabase during production runtime.
 
-## Required API
+## Production Stack
 
-- `GET /api/team_info`
-- `GET /api/agent_info`
-- `GET /api/model_architecture`
-- `POST /api/execute`
+Production runs with live LLMod.ai decision calls for the Agent and Supervisor modules.
 
-Additional demo inspection endpoints:
+| Layer | Technology |
+| --- | --- |
+| Application | Next.js / TypeScript |
+| Text model | `MB5R2CF-azure/gpt-5.4-mini` |
+| LLM provider | LLMod.ai |
+| Embeddings | `MB5R2CF-azure/text-embedding-3-small` |
+| Primary database | Supabase |
+| Vector database | Pinecone |
+| Deployment | Vercel |
 
-- `GET /api/listing_page?id=<listing_id>`
-- `GET /api/audit_logs?listing_id=<listing_id>`
-- `POST /api/demo_reset`
+## Required Project API
 
-`POST /api/execute` returns exactly the required project schema. The `steps` field contains only real LLM calls in order. Deterministic guards, DB reads, Pinecone retrieval, Google Places lookup, page writes, and audit writes are not reported as LLM steps:
+```text
+GET  /api/team_info
+GET  /api/agent_info
+GET  /api/model_architecture
+POST /api/execute
+```
+
+`POST /api/execute` accepts:
+
+```json
+{
+  "prompt": "User request here"
+}
+```
+
+Success response:
 
 ```json
 {
@@ -54,7 +86,28 @@ Additional demo inspection endpoints:
 }
 ```
 
-In `LLM_MODE=mock`, no fake LLM call is reported, so deterministic/mock runs can legitimately return `"steps": []`.
+Error response:
+
+```json
+{
+  "status": "error",
+  "error": "Human-readable error description",
+  "response": null,
+  "steps": []
+}
+```
+
+`steps` contains the real LLM calls executed by the agent in order, as required by the course API specification. Each step includes the module name, the effective prompt sent to the model, and the parsed model response.
+
+## Safety & Scope
+
+- No live Airbnb account access.
+- No scraping or live guest-review ingestion.
+- No price, booking, availability, or payment changes.
+- No private-message or review-response automation.
+- No editing of source CSV rows, guest reviews, Google Places source rows, or booking data.
+- No unsupported facts, amenities, or claims.
+- Updates occur only in the simulated demo listing page.
 
 ## Local Development
 
@@ -63,107 +116,12 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Local development supports an optional mock LLM mode for testing without external model calls.
 
-## Pinecone Setup
+## Team
 
-Pinecone is used as the vector DB for Airbnb review evidence when credentials are configured.
-Without Pinecone credentials, the app falls back to the prepared CSV data so the demo remains usable.
-
-```bash
-npm run setup-pinecone
-npm run setup-pinecone -- --create
-npm run ingest-pinecone -- --managed-demo --confirm-paid
-npm run pinecone-stats
-```
-
-Use `--managed-demo` first to ingest only the evidence-rich demo portfolio. Remove it only after confirming the index, retrieval quality, and budget.
-The ingestion script calls the LLMod embedding model and therefore requires `--confirm-paid`.
-
-Required Pinecone/embedding environment variables:
-
-```bash
-LLMOD_API_KEY=...
-LLMOD_BASE_URL=...
-LLMOD_EMBEDDING_MODEL=MB5R2CF-azure/text-embedding-3-small
-PINECONE_API_KEY=...
-PINECONE_REVIEW_INDEX=airbnb-reviews
-PINECONE_REVIEW_NAMESPACE=airbnb-reviews
-```
-
-Set `REQUIRE_PINECONE_RAG=true` for strict submission validation after Pinecone is configured. In that mode, Review RAG errors instead of silently falling back to CSV.
-
-## Supabase Setup
-
-Supabase is the primary runtime database for structured listing records, simulated listing page state, and audit logs.
-Run the schema in `supabase/schema.sql`, then seed the prepared CSV source files:
-
-```bash
-npm run seed-supabase
-```
-
-Required Supabase environment variables:
-
-```bash
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-REQUIRE_SUPABASE_RUNTIME=true
-```
-
-The service-role key is used server-side only. Local CSV fallback remains available for development when `REQUIRE_SUPABASE_RUNTIME` is not enabled.
-
-## Vercel Deployment
-
-The project is Vercel-ready. Add these environment variables in Vercel before production deployment:
-
-```bash
-LLMOD_API_KEY
-LLMOD_BASE_URL
-LLMOD_TEXT_MODEL
-LLMOD_EMBEDDING_MODEL
-LLM_MODE
-LLM_LIVE_MODULES
-LLM_MAX_TOKENS
-EXECUTE_SERVER_BUDGET_MS
-PINECONE_API_KEY
-PINECONE_REVIEW_INDEX
-PINECONE_REVIEW_NAMESPACE
-REQUIRE_PINECONE_RAG
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-REQUIRE_SUPABASE_RUNTIME
-TEAM_STUDENT_1_NAME
-TEAM_STUDENT_1_EMAIL
-TEAM_STUDENT_2_NAME
-TEAM_STUDENT_2_EMAIL
-TEAM_STUDENT_3_NAME
-TEAM_STUDENT_3_EMAIL
-```
-
-Deploy with GitHub import in Vercel, or from the CLI after login:
-
-```bash
-npx vercel
-npx vercel --prod
-```
-
-After deployment, test the required endpoints with the Python smoke tester:
-
-```bash
-python python/api_smoke_test.py https://YOUR-VERCEL-URL
-```
-
-Run the broader autonomous-agent QA suite against local or production:
-
-```bash
-npm run qa:agent -- http://127.0.0.1:3000
-npm run qa:agent -- https://YOUR-VERCEL-URL
-```
-
-## Token Usage
-
-Local development can run in `LLM_MODE=mock`, while the final production deployment uses `LLM_MODE=live`.
-No LLMod.ai calls are made unless `LLM_MODE=live` is explicitly enabled.
-Use `LLM_LIVE_MODULES=agent,supervisor` to enable both live decision modules, or restrict this list during testing to reduce spend.
-For low-cost validation, start with `LLM_LIVE_MODULES=agent` and a restore prompt before running a full evidence-retrieval edit.
-Normal end-to-end runs are designed for about 2 meaningful LLM calls in Live mode: one `Autonomous Listing Editor Agent` decision call at the agentic choice point and one `Supervisor / Control Agent` approval call. Deterministic states such as scope guard, listing load, approved execution, and audit writes do not call the LLM.
+| Name | Email |
+| --- | --- |
+| Shoval Zvieli | shovalzvieli@campus.technion.ac.il |
+| Daniel Elhadif-Kaminer | edaniel@campus.technion.ac.il |
+| Opal Zvieli | opalzvieli@campus.technion.ac.il |
