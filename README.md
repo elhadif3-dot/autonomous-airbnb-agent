@@ -162,8 +162,8 @@ npm run qa:agent -- https://YOUR-VERCEL-URL
 
 ## Token Usage
 
-The project is currently LLM-ready but runs in `LLM_MODE=mock`.
-No LLMod.ai calls are made unless `LLM_MODE=live` is explicitly enabled and the project owner approves token usage.
+Local development can run in `LLM_MODE=mock`, while the final production deployment uses `LLM_MODE=live`.
+No LLMod.ai calls are made unless `LLM_MODE=live` is explicitly enabled.
 Use `LLM_LIVE_MODULES=agent,supervisor` to enable both live decision modules, or restrict this list during testing to reduce spend.
 For low-cost validation, start with `LLM_LIVE_MODULES=agent` and a restore prompt before running a full evidence-retrieval edit.
 Normal end-to-end runs are designed for about 2 meaningful LLM calls in Live mode: one `Autonomous Listing Editor Agent` decision call at the agentic choice point and one `Supervisor / Control Agent` approval call. Deterministic states such as scope guard, listing load, approved execution, and audit writes do not call the LLM.
