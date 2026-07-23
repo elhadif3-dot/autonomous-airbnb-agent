@@ -104,38 +104,37 @@ export function GET() {
       },
       {
         prompt:
-          "Selected listing id: 45855270\nFor Rossio Garden Hotel, can you find more evidence for Wi-Fi reliability? Return review examples only and do not edit the simulated page.",
+          "Selected listing id: 45855270\nFor Rossio Garden Hotel, focus only on excellent nearby places within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance. Do not search for general review gaps. If there are places strong enough to make the stay more attractive, add a concise natural sentence to the simulated description with the place names, ratings, Google review counts, and approximate distance. If no nearby place is strong enough, stop without editing.",
         full_response:
-          "The agent retrieved focused review evidence, returned a read-only evidence report, and stopped without Google Places, Supervisor approval, or page update.",
+          "Approved and executed in the demo environment when strong nearby places were available. The agent used Google Places as environmental context, filtered by radius and quality, wrote a concise guest-facing nearby sentence, and recorded that the simulated page was updated only after Supervisor approval.",
         steps: [
           {
-            module: "Review RAG",
+            module: "Google Places Context",
             prompt: {
-              system_prompt: "Retrieve focused Airbnb guest-review evidence for the selected listing.",
-              user_prompt: "Find more evidence for Wi-Fi reliability."
+              system_prompt: "Retrieve nearby Google Places context for the selected listing and requested radius.",
+              user_prompt: "Find excellent nearby places within about 1 km."
             },
             response: {
-              search_strategy: "adaptive_time_boxed_evidence_report",
-              queries_run: 2,
-              retrieved_review_count: 80,
-              indexed_review_texts_available: 1909,
-              coverage_covered_after_count: 240,
-              coverage_total_reviews_in_scope: 1909,
-              retrieval_note: "Pinecone searches the full review namespace with adaptive topic queries filtered by listing_id, while the session coverage layer adds a new unseen local review window for repeated requests."
+              nearby_places: [
+                {
+                  name: "La Festa Pizzaria Italiano",
+                  rating: 4.8,
+                  user_ratings_total: 48,
+                  approximate_distance_km: 0.6
+                }
+              ],
+              context_rule: "Google Places can support nearby guest value but does not replace guest-review evidence for experience claims."
             }
           },
           {
-            module: "Review RAG",
+            module: "Supervisor / Control Agent",
             prompt: {
-              system_prompt: "Draft a manager-facing evidence report without editing the simulated listing page.",
-              user_prompt: "Retrieved Wi-Fi evidence."
+              system_prompt: "Approve, revise, or block the proposed page action.",
+              user_prompt: "Review proposed nearby-place description sentence."
             },
             response: {
-              evidence_report: {
-                topic: "Wi-Fi reliability",
-                matchingEvidenceCount: 5
-              },
-              editable_scope: "No page update is executed by this tool."
+              decision: "Approve",
+              rationale: "The edit is narrow, uses high-quality nearby context, includes rating/review-count/distance, and updates only the simulated page."
             }
           }
         ]
