@@ -235,6 +235,26 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
     state.selectedActions.push(parsedAction.next_action);
 
     const shouldContinue = await runAction(parsedAction, state, steps);
+    if (state.proposal?.action === "stop_without_action" && !state.auditLog) {
+      const stopAction = action(
+        "stop_without_action",
+        { listing_id: state.listingId, runtime_terminal_from: parsedAction.next_action },
+        "The latest tool observation produced a stop decision, so no Supervisor approval or page edit is needed.",
+        "Stop without page update.",
+        true
+      );
+      steps.push(
+        step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
+          ...stopAction,
+          action_number: iteration + 1,
+          llm_mode: "runtime_auto_stop"
+        })
+      );
+      state.selectedActions.push(stopAction.next_action);
+      await runAction(stopAction, state, steps);
+      break;
+    }
+
     if (!shouldContinue || (parsedAction.should_stop && parsedAction.next_action === "stop_without_action")) {
       break;
     }
@@ -501,7 +521,7 @@ function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction
     );
   }
 
-  if (state.proposal?.action === "stop_without_action" && !state.signals && proposed.next_action !== "stop_without_action") {
+  if (state.proposal?.action === "stop_without_action" && proposed.next_action !== "stop_without_action") {
     return action(
       "stop_without_action",
       { listing_id: state.listingId, runtime_override_from: proposed.next_action },
@@ -1486,9 +1506,18 @@ function reviewCoverageScopeKey(state: AgentState): string {
           ? "alignment"
           : "focused";
 
+  if (mode === "alignment") {
+    const contextMode = state.intent.includes("nearby_highlights") ? "reviews_and_nearby" : "reviews_only";
+    return `alignment:${contextMode}`;
+  }
+
+  if (mode === "manager") {
+    return "manager:fixable_property_and_operations_issues";
+  }
+
   const topics = state.intent
     .filter((topic) => !["restore_original", "review_only"].includes(topic))
-    .filter((topic) => mode === "alignment" || topic !== "review_alignment")
+    .filter((topic) => topic !== "review_alignment")
     .sort();
 
   const radius = mode === "nearby" ? `:radius_${requestedPlacesRadiusKm(state.prompt)}` : "";
@@ -2650,7 +2679,10 @@ function finalResponse(state: AgentState): string {
   }
 
   if (state.pageUpdate?.status === "not_executed") {
-    const reason = state.pageUpdate.reason ?? state.proposal?.reason ?? state.supervisor?.rationale ?? "No effective page change was available.";
+    const reason =
+      state.supervisor?.decision === "Block"
+        ? state.supervisor.rationale
+        : state.pageUpdate.reason ?? state.proposal?.reason ?? state.supervisor?.rationale ?? "No effective page change was available.";
     return [
       `No new page update was executed for listing ${state.listing.id}: ${state.listing.name}.`,
       "",

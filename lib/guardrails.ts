@@ -27,9 +27,21 @@ const forbiddenPatterns = [
 ];
 
 export function validateProposal(proposal: EditProposal, state?: EvidenceState): GuardrailResult {
-  const text = JSON.stringify(proposal);
+  const editText = [
+    proposal.proposed_description_addition,
+    proposal.proposed_description_replacement
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+  const currentDescription = state?.page?.currentDescription;
   const violations = forbiddenPatterns
-    .filter((rule) => rule.pattern.test(text))
+    .filter((rule) => {
+      if (!rule.pattern.test(editText)) {
+        return false;
+      }
+
+      return !(proposal.action === "replace_description" && currentDescription && rule.pattern.test(currentDescription));
+    })
     .map((rule) => rule.name);
 
   if (
@@ -78,7 +90,6 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
       violations.push("insufficient_primary_evidence");
     }
 
-    const currentDescription = state.page?.currentDescription;
     if (
       currentDescription &&
       proposal.proposed_description_addition &&

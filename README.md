@@ -1,4 +1,4 @@
-# Autonomous Lisbon Airbnb Listing Editor
+# FixGap AI
 
 Demo implementation for an autonomous AI agent that helps a Lisbon short-term-rental manager keep simulated Airbnb listing pages aligned with real guest experience.
 
@@ -124,6 +124,13 @@ After deployment, test the required endpoints with the Python smoke tester:
 
 ```bash
 python python/api_smoke_test.py https://YOUR-VERCEL-URL
+```
+
+Run the broader autonomous-agent QA suite against local or production:
+
+```bash
+npm run qa:agent -- http://127.0.0.1:3000
+npm run qa:agent -- https://YOUR-VERCEL-URL
 ```
 
 ## Token Usage
