@@ -2,6 +2,8 @@
 
 Last local run: 2026-07-23
 
+Last production run: 2026-07-23 against `https://autonomous-airbnb-agent.vercel.app`
+
 Command:
 
 ```bash
@@ -9,6 +11,8 @@ npm run qa:agent -- http://127.0.0.1:3000
 ```
 
 Result: 20/20 scenarios passed.
+
+Production result: 20/20 scenarios passed. A final production smoke test after the last metadata update also passed for `/api/team_info`, `/api/agent_info`, `/api/execute` scope guard, and a listing-edit request.
 
 ## Coverage
 
