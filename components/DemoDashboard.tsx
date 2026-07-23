@@ -469,13 +469,19 @@ function AgentFeatureBar({
   return (
     <section className="agentDock">
       <div className="agentDockIntro">
-        <div className="agentIconBubble">
-          <MessageSquareText size={20} />
+        <div className="agentLogoMark" aria-hidden="true">
+          <MessageSquareText size={18} strokeWidth={2.4} />
         </div>
         <div>
-          <span className="agentEyebrow">FixGap AI</span>
+          <div className="agentBrand">
+            <span className="agentWordmark">
+              <span>FixGap</span>
+              <em>AI</em>
+            </span>
+            <span className="agentTagline">Autonomous listing manager</span>
+          </div>
           <h2>Improve this listing page</h2>
-          <p>Find gaps, improve allowed demo text, and explain what changed.</p>
+          <p>Ask for a listing update. The agent selects actions, edits allowed demo text, and reports what changed.</p>
         </div>
       </div>
 

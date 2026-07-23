@@ -142,40 +142,82 @@ button {
 .agentDock {
   width: 100%;
   margin: 0;
-  padding: 18px 18px 20px;
+  padding: 20px 20px 22px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: white;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 56, 92, 0.035), rgba(255, 255, 255, 0) 120px),
+    white;
   box-shadow: var(--shadow);
 }
 
 .agentDockIntro {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  margin-bottom: 15px;
+  gap: 14px;
+  margin-bottom: 17px;
 }
 
-.agentIconBubble {
-  width: 38px;
-  height: 38px;
+.agentLogoMark {
+  width: 44px;
+  height: 44px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
+  border: 1px solid rgba(255, 56, 92, 0.18);
+  border-radius: 13px;
+  color: var(--air);
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.45)),
+    linear-gradient(135deg, rgba(255, 56, 92, 0.13), rgba(255, 56, 92, 0.04));
+  box-shadow: 0 10px 24px rgba(255, 56, 92, 0.16);
+}
+
+.agentBrand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.agentWordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: #222222;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.agentWordmark em {
+  color: var(--air);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.agentTagline {
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 56, 92, 0.14);
   border-radius: 999px;
-  color: white;
-  background: linear-gradient(135deg, var(--air), var(--air-dark));
+  color: #6b5f64;
+  background: rgba(255, 56, 92, 0.055);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .agentDockIntro h2 {
-  margin: 3px 0 0;
+  margin: 7px 0 0;
   font-size: 18px;
   line-height: 1.2;
   letter-spacing: 0;
 }
 
 .agentDockIntro p {
-  margin: 5px 0 0;
+  margin: 6px 0 0;
   color: var(--muted);
   line-height: 1.42;
   font-size: 13px;
@@ -656,13 +698,6 @@ button {
   margin: 12px 0 0;
   text-align: center;
   font-size: 13px;
-}
-
-.agentEyebrow {
-  color: var(--air);
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
 }
 
 .promptLabel {
