@@ -404,6 +404,8 @@ function shouldUseLlmForDecision(state: AgentState): boolean {
     state.evidenceReport ||
     !state.listing ||
     state.supervisor?.decision === "Approve" ||
+    state.supervisor?.decision === "Block" ||
+    state.supervisor?.decision === "Revise" ||
     state.proposal?.action === "stop_without_action"
   ) {
     return false;
