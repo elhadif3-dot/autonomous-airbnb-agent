@@ -117,11 +117,3 @@ npm run dev
 ```
 
 Local development supports an optional mock LLM mode for testing without external model calls.
-
-## Team
-
-| Name | Email |
-| --- | --- |
-| Shoval Zvieli | shovalzvieli@campus.technion.ac.il |
-| Daniel Elhadif-Kaminer | edaniel@campus.technion.ac.il |
-| Opal Zvieli | opalzvieli@campus.technion.ac.il |
