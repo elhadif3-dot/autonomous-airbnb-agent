@@ -6,6 +6,13 @@ import type {
   SupervisorDecision
 } from "@/lib/types";
 import type { EditProposal } from "@/lib/schemas";
+import {
+  fetchSupabaseAuditLogs,
+  getSupabaseSimulatedPage,
+  insertSupabaseAuditLog,
+  isSupabaseConfigured,
+  upsertSupabaseSimulatedPage
+} from "@/lib/supabaseRuntime";
 
 type Store = {
   pages: Map<string, SimulatedListingPage>;
@@ -27,11 +34,19 @@ function store(): Store {
   return globalStore.__airbnbAgentStore;
 }
 
-export function getSimulatedListingPage(listing: Listing, currentDescriptionOverride?: string): SimulatedListingPage {
+export async function getSimulatedListingPage(listing: Listing, currentDescriptionOverride?: string): Promise<SimulatedListingPage> {
+  if (isSupabaseConfigured() && typeof currentDescriptionOverride !== "string") {
+    const page = await getSupabaseSimulatedPage(listing);
+    if (page) {
+      return page;
+    }
+  }
+
   if (typeof currentDescriptionOverride === "string") {
     const page = {
       listingId: listing.id,
       currentDescription: currentDescriptionOverride,
+      previousDescription: null,
       updatedAt: new Date().toISOString()
     };
     store().pages.set(listing.id, page);
@@ -46,23 +61,25 @@ export function getSimulatedListingPage(listing: Listing, currentDescriptionOver
   const page = {
     listingId: listing.id,
     currentDescription: listing.description,
+    previousDescription: null,
     updatedAt: new Date().toISOString()
   };
   store().pages.set(listing.id, page);
   return page;
 }
 
-export function applySimulatedPageUpdate(
+export async function applySimulatedPageUpdate(
   listing: Listing,
   proposal: EditProposal,
   decision: SupervisorDecision,
   previousDescription?: string
-): SimulatedPageUpdate {
+): Promise<SimulatedPageUpdate> {
   if (decision === "Approve" && proposal.action === "restore_previous_page") {
-    const page = getSimulatedListingPage(listing);
+    const page = await getSimulatedListingPage(listing);
     const before = page.currentDescription;
+    const restoreTarget = previousDescription ?? page.previousDescription ?? undefined;
 
-    if (!previousDescription || normalizedText(previousDescription) === normalizedText(before)) {
+    if (!restoreTarget || normalizedText(restoreTarget) === normalizedText(before)) {
       return {
         listingId: listing.id,
         status: "not_executed",
@@ -76,24 +93,25 @@ export function applySimulatedPageUpdate(
 
     const updated = {
       ...page,
-      currentDescription: previousDescription,
+      currentDescription: restoreTarget,
+      previousDescription: before,
       updatedAt: new Date().toISOString()
     };
 
-    store().pages.set(listing.id, updated);
+    await savePage(updated);
 
     return {
       listingId: listing.id,
       status: "executed",
       field: "description",
       before,
-      after: previousDescription,
+      after: restoreTarget,
       addedText: "Restored the simulated listing description to the previous version text."
     };
   }
 
   if (decision === "Approve" && proposal.action === "restore_original_page") {
-    const page = getSimulatedListingPage(listing);
+    const page = await getSimulatedListingPage(listing);
     const before = page.currentDescription;
 
     if (normalizedText(before) === normalizedText(listing.description)) {
@@ -111,10 +129,11 @@ export function applySimulatedPageUpdate(
     const updated = {
       ...page,
       currentDescription: listing.description,
+      previousDescription: before,
       updatedAt: new Date().toISOString()
     };
 
-    store().pages.set(listing.id, updated);
+    await savePage(updated);
 
     return {
       listingId: listing.id,
@@ -132,7 +151,7 @@ export function applySimulatedPageUpdate(
     proposal.proposed_description_replacement &&
     proposal.target_fields.includes("description")
   ) {
-    const page = getSimulatedListingPage(listing);
+    const page = await getSimulatedListingPage(listing);
     const before = page.currentDescription;
     const after = proposal.proposed_description_replacement.trim();
 
@@ -151,10 +170,11 @@ export function applySimulatedPageUpdate(
     const updated = {
       ...page,
       currentDescription: after,
+      previousDescription: before,
       updatedAt: new Date().toISOString()
     };
 
-    store().pages.set(listing.id, updated);
+    await savePage(updated);
 
     return {
       listingId: listing.id,
@@ -183,7 +203,7 @@ export function applySimulatedPageUpdate(
     };
   }
 
-  const page = getSimulatedListingPage(listing);
+  const page = await getSimulatedListingPage(listing);
   const before = page.currentDescription;
   const after = appendIfMissing(before, proposal.proposed_description_addition);
 
@@ -202,10 +222,11 @@ export function applySimulatedPageUpdate(
   const updated = {
     ...page,
     currentDescription: after,
+    previousDescription: before,
     updatedAt: new Date().toISOString()
   };
 
-  store().pages.set(listing.id, updated);
+  await savePage(updated);
 
   return {
     listingId: listing.id,
@@ -217,16 +238,17 @@ export function applySimulatedPageUpdate(
   };
 }
 
-export function createAuditLog(input: {
+export async function createAuditLog(input: {
   listing: Listing;
   managerPrompt: string;
   decision: SupervisorDecision;
   selectedActions: string[];
   evidenceSummary: unknown;
   proposal: unknown;
+  pageUpdate?: SimulatedPageUpdate | null;
   supervisorRationale: string;
   executedInDemoEnvironment: boolean;
-}): AuditLogEntry {
+}): Promise<AuditLogEntry> {
   const audit: AuditLogEntry = {
     id: crypto.randomUUID(),
     listingId: input.listing.id,
@@ -236,6 +258,7 @@ export function createAuditLog(input: {
     selectedActions: input.selectedActions,
     evidenceSummary: input.evidenceSummary,
     proposal: input.proposal,
+    pageUpdate: input.pageUpdate ?? null,
     supervisorRationale: input.supervisorRationale,
     executedInDemoEnvironment: input.executedInDemoEnvironment,
     liveAirbnbUpdated: false,
@@ -243,20 +266,34 @@ export function createAuditLog(input: {
   };
 
   store().audits.unshift(audit);
-  return audit;
+  return insertSupabaseAuditLog(audit);
 }
 
-export function getAuditLogs(listingId?: string): AuditLogEntry[] {
+export async function getAuditLogs(listingId?: string): Promise<AuditLogEntry[]> {
+  const supabaseAudits = await fetchSupabaseAuditLogs(listingId);
+  if (supabaseAudits) {
+    return supabaseAudits;
+  }
+
   return store().audits.filter((audit) => !listingId || audit.listingId === listingId);
 }
 
-export function resetSimulatedListingPage(listing: Listing): SimulatedListingPage {
+export async function resetSimulatedListingPage(listing: Listing): Promise<SimulatedListingPage> {
   const page = {
     listingId: listing.id,
     currentDescription: listing.description,
+    previousDescription: null,
     updatedAt: new Date().toISOString()
   };
-  store().pages.set(listing.id, page);
+  return savePage(page);
+}
+
+async function savePage(page: SimulatedListingPage): Promise<SimulatedListingPage> {
+  store().pages.set(page.listingId, page);
+  if (isSupabaseConfigured()) {
+    return upsertSupabaseSimulatedPage(page);
+  }
+
   return page;
 }
 

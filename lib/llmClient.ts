@@ -1,3 +1,5 @@
+import type { AgentStep } from "@/lib/types";
+
 type LlmMessage = {
   role: "system" | "user";
   content: string;
@@ -9,6 +11,12 @@ type LlmJsonOptions<T> = {
   mockResponse: T;
 };
 
+type LlmJsonResult<T> = {
+  output: T;
+  calledLive: boolean;
+  step: AgentStep | null;
+};
+
 type ChatCompletionResponse = {
   choices?: Array<{
     message?: {
@@ -18,10 +26,26 @@ type ChatCompletionResponse = {
 };
 
 const DEFAULT_TEXT_MODEL = "MB5R2CF-azure/gpt-5.4-mini";
+const JSON_ONLY_INSTRUCTION = "Return only valid JSON. Do not include markdown, prose, or code fences.";
 
-export async function callLlmJson<T>({ module, messages, mockResponse }: LlmJsonOptions<T>): Promise<T> {
+export async function callLlmJson<T>(options: LlmJsonOptions<T>): Promise<T> {
+  const result = await callLlmJsonWithTrace(options);
+  return result.output;
+}
+
+export async function callLlmJsonWithTrace<T>({
+  module,
+  messages,
+  mockResponse
+}: LlmJsonOptions<T>): Promise<LlmJsonResult<T>> {
+  const effectivePrompt = effectivePromptParts(messages);
+
   if (process.env.LLM_MODE !== "live" || !isLiveModuleEnabled(module)) {
-    return mockResponse;
+    return {
+      output: mockResponse,
+      calledLive: false,
+      step: null
+    };
   }
 
   const apiKey = process.env.LLMOD_API_KEY;
@@ -31,13 +55,35 @@ export async function callLlmJson<T>({ module, messages, mockResponse }: LlmJson
     throw new Error("LLM_MODE=live requires LLMOD_API_KEY and LLMOD_BASE_URL.");
   }
 
+  const output = await requestJsonFromLlm<T>(module, baseUrl, apiKey, effectivePrompt);
+
+  return {
+    output,
+    calledLive: true,
+    step: {
+      module,
+      prompt: {
+        system_prompt: effectivePrompt.system_prompt,
+        user_prompt: effectivePrompt.user_prompt
+      },
+      response: output
+    }
+  };
+}
+
+async function requestJsonFromLlm<T>(
+  module: string,
+  baseUrl: string,
+  apiKey: string,
+  prompt: { system_prompt: string; user_prompt: string }
+): Promise<T> {
   const response = await fetch(chatCompletionsUrl(baseUrl), {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(buildChatBody(messages))
+    body: JSON.stringify(buildChatBody(prompt))
   });
 
   if (!response.ok) {
@@ -51,30 +97,25 @@ export async function callLlmJson<T>({ module, messages, mockResponse }: LlmJson
     throw new Error(`LLM returned an empty response for ${module}.`);
   }
 
-  try {
-    return JSON.parse(content) as T;
-  } catch {
-    const extracted = extractJsonObject(content);
-    if (extracted) {
-      try {
-        return JSON.parse(extracted) as T;
-      } catch {
-        return mockResponse;
-      }
-    }
-
-    return mockResponse;
+  const parsed = parseJsonObject<T>(content);
+  if (!parsed.ok) {
+    throw new Error(`LLM returned invalid JSON for ${module}. Raw response: ${content.slice(0, 240)}`);
   }
+
+  return parsed.value;
 }
 
-function buildChatBody(messages: LlmMessage[]) {
+function buildChatBody(prompt: { system_prompt: string; user_prompt: string }) {
   const body: Record<string, unknown> = {
     model: process.env.LLMOD_TEXT_MODEL || DEFAULT_TEXT_MODEL,
     messages: [
-      ...messages,
+      {
+        role: "system",
+        content: prompt.system_prompt
+      },
       {
         role: "user",
-        content: "Return only valid JSON. Do not include markdown, prose, or code fences."
+        content: prompt.user_prompt
       }
     ],
     max_tokens: Number(process.env.LLM_MAX_TOKENS ?? 450)
@@ -89,6 +130,41 @@ function buildChatBody(messages: LlmMessage[]) {
   }
 
   return body;
+}
+
+function effectivePromptParts(messages: LlmMessage[]): { system_prompt: string; user_prompt: string } {
+  const system = messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+  const user = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+
+  const systemPrompt = [...system, JSON_ONLY_INSTRUCTION].join("\n\n");
+
+  return {
+    system_prompt: systemPrompt,
+    user_prompt: user.join("\n\n")
+  };
+}
+
+function parseJsonObject<T>(content: string): { ok: true; value: T } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(content) as T };
+  } catch {
+    const extracted = extractJsonObject(content);
+    if (!extracted) {
+      return { ok: false };
+    }
+
+    try {
+      return { ok: true, value: JSON.parse(extracted) as T };
+    } catch {
+      return { ok: false };
+    }
+  }
 }
 
 function chatCompletionsUrl(baseUrl: string): string {

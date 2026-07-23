@@ -29,7 +29,7 @@ import {
   Wifi,
   Wind
 } from "lucide-react";
-import type { AgentStep, ExecuteResponse, Listing, Review, ReviewCoverageSnapshot } from "@/lib/types";
+import type { AgentStep, AuditLogEntry, ExecuteResponse, Listing, Review } from "@/lib/types";
 
 type DemoListing = Listing & {
   recentReviews: Review[];
@@ -56,19 +56,6 @@ type TraceSummary = {
   decision?: string;
   status?: string;
 };
-
-function createDemoSessionId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function getProposalAction(result: ExecuteResponse): string | null {
-  const proposal = result.audit_log?.proposal;
-  return isRecord(proposal) ? stringValue(proposal.action) ?? null : null;
-}
 
 const defaultPrompt =
   "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
@@ -109,7 +96,6 @@ function promptExamples(listingName: string) {
 }
 
 export function DemoDashboard({ initialListings, listingOptions, totalDatasetListings }: Props) {
-  const [demoSessionId] = useState(() => createDemoSessionId());
   const [listings, setListings] = useState(initialListings);
   const [selectedId, setSelectedId] = useState(initialListings[0]?.id ?? listingOptions[0]?.id ?? "");
   const [prompt, setPrompt] = useState(defaultPrompt);
@@ -117,8 +103,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
   const [isRunning, setIsRunning] = useState(false);
   const [isLoadingListing, setIsLoadingListing] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
-  const [descriptionHistory, setDescriptionHistory] = useState<Record<string, string[]>>({});
-  const [reviewCoverageState, setReviewCoverageState] = useState<ReviewCoverageSnapshot>({});
+  const [latestAuditLog, setLatestAuditLog] = useState<AuditLogEntry | null>(null);
   const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
 
   const selectedListing = useMemo(
@@ -158,12 +143,6 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
 
     setIsRunning(true);
     setResult(null);
-    const listingHistory = descriptionHistory[selectedListing.id] ?? [];
-    const previousPageDescription = listingHistory[listingHistory.length - 1];
-    const portfolioPageDescriptions = initialListings.reduce<Record<string, string>>((values, listing) => {
-      values[listing.id] = simulatedDescriptions[listing.id] ?? listing.description;
-      return values;
-    }, {});
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 130000);
@@ -176,12 +155,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         },
         signal: controller.signal,
         body: JSON.stringify({
-          prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
-          current_page_description: currentDescription,
-          previous_page_description: previousPageDescription,
-          portfolio_page_descriptions: portfolioPageDescriptions,
-          review_coverage_state: reviewCoverageState,
-          session_id: demoSessionId
+          prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`
         })
       });
 
@@ -189,53 +163,12 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         status: "error",
         error: `The agent returned HTTP ${response.status}, but the response body was not valid JSON.`,
         response: null,
-        steps: [],
-        page_update: null,
-        portfolio_update: null,
-        audit_log: null
+        steps: []
       }))) as ExecuteResponse;
 
       setResult(payload);
-      if (payload.review_coverage_state) {
-        setReviewCoverageState(payload.review_coverage_state);
-      }
-      if (payload.page_update?.status === "executed" && payload.page_update.after) {
-        const proposalAction = getProposalAction(payload);
-        const listingId = payload.page_update.listingId;
-        setDescriptionHistory((current) => {
-          const stack = current[listingId] ?? [];
-          if (proposalAction === "restore_previous_page") {
-            return {
-              ...current,
-              [listingId]: stack.slice(0, -1)
-            };
-          }
-
-          if (!payload.page_update?.before || payload.page_update.before === payload.page_update.after) {
-            return current;
-          }
-
-          return {
-            ...current,
-            [listingId]: [...stack, payload.page_update.before].slice(-12)
-          };
-        });
-        setSimulatedDescriptions((current) => ({
-          ...current,
-          [payload.page_update!.listingId]: payload.page_update!.after!
-        }));
-      }
-      if (payload.portfolio_update?.results) {
-        setSimulatedDescriptions((current) => {
-          const next = { ...current };
-          for (const item of payload.portfolio_update?.results ?? []) {
-            if (item.status === "executed" && item.after) {
-              next[item.listingId] = item.after;
-            }
-          }
-          return next;
-        });
-      }
+      await refreshListingPage(selectedListing.id);
+      await refreshLatestAuditLog(selectedListing.id);
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
       setResult({
@@ -246,10 +179,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
             ? error.message
             : "The agent request failed before a response was received.",
         response: null,
-        steps: [],
-        page_update: null,
-        portfolio_update: null,
-        audit_log: null
+        steps: []
       });
     } finally {
       window.clearTimeout(timeoutId);
@@ -267,19 +197,40 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ listing_id: selectedListing.id, session_id: demoSessionId })
+      body: JSON.stringify({ listing_id: selectedListing.id })
     });
 
     setSimulatedDescriptions((current) => ({
       ...current,
       [selectedListing.id]: selectedListing.description
     }));
-    setDescriptionHistory((current) => ({
-      ...current,
-      [selectedListing.id]: []
-    }));
-    setReviewCoverageState({});
     setResult(null);
+    setLatestAuditLog(null);
+  }
+
+  async function refreshListingPage(listingId: string) {
+    const response = await fetch(`/api/listing_page?id=${encodeURIComponent(listingId)}`);
+    const payload = (await response.json().catch(() => null)) as
+      | { status: string; page?: { currentDescription?: string } }
+      | null;
+
+    if (payload?.status === "ok" && typeof payload.page?.currentDescription === "string") {
+      setSimulatedDescriptions((current) => ({
+        ...current,
+        [listingId]: payload.page!.currentDescription!
+      }));
+    }
+  }
+
+  async function refreshLatestAuditLog(listingId: string) {
+    const response = await fetch(`/api/audit_logs?listing_id=${encodeURIComponent(listingId)}`);
+    const payload = (await response.json().catch(() => null)) as
+      | { status: string; audit_logs?: AuditLogEntry[] }
+      | null;
+
+    if (payload?.status === "ok") {
+      setLatestAuditLog(payload.audit_logs?.[0] ?? null);
+    }
   }
 
   if (!selectedListing) {
@@ -403,6 +354,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
               resetPage={resetPage}
               isRunning={isRunning}
               result={result}
+              auditLog={latestAuditLog}
               examples={examples}
             />
             <ReservationCard listing={selectedListing} />
@@ -456,6 +408,7 @@ function AgentFeatureBar({
   resetPage,
   isRunning,
   result,
+  auditLog,
   examples
 }: {
   prompt: string;
@@ -464,6 +417,7 @@ function AgentFeatureBar({
   resetPage: () => void;
   isRunning: boolean;
   result: ExecuteResponse | null;
+  auditLog: AuditLogEntry | null;
   examples: ReturnType<typeof promptExamples>;
 }) {
   return (
@@ -526,11 +480,11 @@ function AgentFeatureBar({
       </div>
 
       {!result ? (
-        <div className="emptyState">
-          Action Trace will show the actions the agent selected, tool observations, Supervisor decision, page update, and audit log.
-        </div>
+      <div className="emptyState">
+          LLM Steps Trace shows only real LLM calls returned by /api/execute. Page state and audit records are kept server-side.
+      </div>
       ) : (
-        <AgentResult result={result} />
+        <AgentResult result={result} auditLog={auditLog} />
       )}
     </section>
   );
@@ -634,10 +588,12 @@ function ReservationCard({ listing }: { listing: DemoListing }) {
   );
 }
 
-function AgentResult({ result }: { result: ExecuteResponse }) {
+function AgentResult({ result, auditLog }: { result: ExecuteResponse; auditLog: AuditLogEntry | null }) {
   const supervisorStep = result.steps.find((step) => step.module === "Supervisor / Control Agent");
   const decision = getDecision(supervisorStep);
-  const evidenceTopics = getEvidenceTopics(result.audit_log?.proposal);
+  const audit = result.audit_log ?? auditLog;
+  const pageUpdate = result.page_update ?? audit?.pageUpdate ?? null;
+  const evidenceTopics = getEvidenceTopics(audit?.proposal);
 
   return (
     <div className="result">
@@ -647,26 +603,26 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
         <p>{result.response ?? result.error}</p>
       </div>
 
-      {result.page_update ? (
+      {pageUpdate ? (
         <div className="auditBox">
           <h4>End-to-end page result</h4>
-          <p>Status: {result.page_update.status}</p>
-          {result.page_update.status === "executed" ? (
+          <p>Status: {pageUpdate.status}</p>
+          {pageUpdate.status === "executed" ? (
             <p>
               The agent completed the request on the simulated page, updated only the allowed listing text, and kept the source
               reviews, CSV rows, Places data, booking data, and pricing read-only.
             </p>
           ) : null}
           {evidenceTopics.length > 0 ? <p>Why this helps: {evidenceTopics.join(", ")}.</p> : null}
-          {result.page_update.status === "executed" ? (
+          {pageUpdate.status === "executed" ? (
             <div className="diffGrid">
               <div>
                 <strong>Before</strong>
-                <p>{result.page_update.before}</p>
+                <p>{pageUpdate.before}</p>
               </div>
               <div>
                 <strong>After</strong>
-                <p>{result.page_update.after}</p>
+                <p>{pageUpdate.after}</p>
               </div>
             </div>
           ) : null}
@@ -744,18 +700,23 @@ function AgentResult({ result }: { result: ExecuteResponse }) {
         </div>
       ) : null}
 
-      {result.audit_log ? (
+      {audit ? (
         <div className="auditBox">
           <h4>Audit log</h4>
           <p>
-            {result.audit_log.createdAt} | {result.audit_log.decision} | liveAirbnbUpdated=
-            {String(result.audit_log.liveAirbnbUpdated)}
+            {audit.createdAt} | {audit.decision} | liveAirbnbUpdated=
+            {String(audit.liveAirbnbUpdated)}
           </p>
         </div>
       ) : null}
 
       <div className="stepList">
-        <h4>Action Trace</h4>
+        <h4>LLM Steps Trace</h4>
+        {result.steps.length === 0 ? (
+          <div className="emptyState">
+            No LLM calls were made for this run. In mock or deterministic guard paths, the public API correctly returns an empty steps array.
+          </div>
+        ) : null}
         {result.steps.map((step, index) => {
           const summary = summarizeTraceStep(step);
 

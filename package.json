@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "setup-pinecone": "node scripts/setup-pinecone.mjs",
+    "seed-supabase": "node scripts/seed-supabase.mjs",
     "ingest-pinecone": "node scripts/ingest-pinecone.mjs",
     "pinecone-stats": "node scripts/pinecone-stats.mjs",
     "qa:agent": "node scripts/qa-agent.mjs"

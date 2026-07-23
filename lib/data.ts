@@ -2,6 +2,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseCsv, rowsToObjects } from "@/lib/csv";
 import { queryPineconeReviews } from "@/lib/pineconeReviews";
+import {
+  fetchGooglePlacesFromSupabase,
+  fetchListingByIdFromSupabase,
+  fetchListingsFromSupabase,
+  isSupabaseConfigured
+} from "@/lib/supabaseRuntime";
 import type { Listing, Place, Review } from "@/lib/types";
 
 let listingsCache: Listing[] | null = null;
@@ -45,6 +51,11 @@ function cleanText(value: string): string {
 }
 
 export async function getListings(limit?: number): Promise<Listing[]> {
+  const supabaseListings = await fetchListingsFromSupabase(limit);
+  if (supabaseListings) {
+    return supabaseListings;
+  }
+
   if (!listingsCache) {
     const csv = await readFile(path.join(root, "lisbon_listings_final_with_pois.csv"), "utf8");
     const objects = rowsToObjects(parseCsv(csv));
@@ -86,6 +97,15 @@ export async function getManagedDemoListings(limit = 8): Promise<Listing[]> {
 }
 
 export async function getListingById(id: string): Promise<Listing | null> {
+  const supabaseListing = await fetchListingByIdFromSupabase(id);
+  if (isSupabaseConfigured()) {
+    return supabaseListing;
+  }
+
+  if (supabaseListing) {
+    return supabaseListing;
+  }
+
   const listings = await getListings();
   return listings.find((listing) => listing.id === id) ?? null;
 }
@@ -137,6 +157,10 @@ export async function getReviewSearchResult(
     return { reviews: pineconeReviews, source: "pinecone" };
   }
 
+  if (process.env.REQUIRE_PINECONE_RAG === "true") {
+    throw new Error("Review RAG requires Pinecone in this environment, but Pinecone returned no usable reviews.");
+  }
+
   const reviews = await getAllLocalReviews();
 
   return {
@@ -151,6 +175,25 @@ export async function getReviewsForListing(listingId: string, query?: string, li
 }
 
 export async function getPlacesNearListing(listing: Listing, limit = 8, radiusKm = 2): Promise<Place[]> {
+  const supabasePlaces = await fetchGooglePlacesFromSupabase();
+  const sourcePlaces = supabasePlaces ?? (await getLocalPlaces());
+
+  return sourcePlaces
+    .map((place) => ({
+      ...place,
+      distanceKm: distanceKm(listing.latitude, listing.longitude, place.latitude, place.longitude)
+    }))
+    .filter((place) => (place.distanceKm ?? Infinity) <= radiusKm)
+    .sort((a, b) => {
+      const scoreA = (a.rating ?? 0) * Math.log10(a.numberOfReviews + 10);
+      const scoreB = (b.rating ?? 0) * Math.log10(b.numberOfReviews + 10);
+      return scoreB - scoreA;
+    })
+    .filter((place, index, places) => places.findIndex((item) => item.placeName === place.placeName) === index)
+    .slice(0, limit);
+}
+
+async function getLocalPlaces(): Promise<Place[]> {
   if (!placesCache) {
     const csv = await readFile(path.join(root, "lisbon_google_places_filtered.csv"), "utf8");
     const objects = rowsToObjects(parseCsv(csv));
@@ -167,19 +210,7 @@ export async function getPlacesNearListing(listing: Listing, limit = 8, radiusKm
       }));
   }
 
-  return placesCache
-    .map((place) => ({
-      ...place,
-      distanceKm: distanceKm(listing.latitude, listing.longitude, place.latitude, place.longitude)
-    }))
-    .filter((place) => (place.distanceKm ?? Infinity) <= radiusKm)
-    .sort((a, b) => {
-      const scoreA = (a.rating ?? 0) * Math.log10(a.numberOfReviews + 10);
-      const scoreB = (b.rating ?? 0) * Math.log10(b.numberOfReviews + 10);
-      return scoreB - scoreA;
-    })
-    .filter((place, index, places) => places.findIndex((item) => item.placeName === place.placeName) === index)
-    .slice(0, limit);
+  return placesCache;
 }
 
 function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {

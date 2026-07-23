@@ -23,7 +23,7 @@ The agent follows a ReAct-style loop:
 `Reason -> Choose Tool -> Observe -> Update State -> Replan or Stop`
 
 Actual page edits are executed only after `Supervisor / Control Agent` approval.
-Approved edits update the simulated listing page state and create an audit-log entry.
+Approved edits update the simulated listing page state and create an audit-log entry through the runtime state layer. When Supabase is configured, Supabase is the primary database for structured listing rows, simulated page state, and audit logs.
 Manager prompts can ask the agent to restore the simulated page to the previous in-session version. The separate `Reset Page` control restores the original dataset text and clears session history.
 Copy-polish prompts can ask the agent to rewrite only the current description wording. That action does not call Review RAG or Google Places; it preserves existing facts, place names, ratings, distances, and evidence-backed notes.
 Manager insight prompts can ask what fixable property or operations issues guests mention. That action returns recommendations only; it does not edit the listing page and does not require live Airbnb access.
@@ -43,8 +43,7 @@ Additional demo inspection endpoints:
 - `GET /api/audit_logs?listing_id=<listing_id>`
 - `POST /api/demo_reset`
 
-`POST /api/execute` returns the required project schema. The field is named `steps`
-because the project API requires it, but conceptually it is the agent action/tool trace:
+`POST /api/execute` returns exactly the required project schema. The `steps` field contains only real LLM calls in order. Deterministic guards, DB reads, Pinecone retrieval, Google Places lookup, page writes, and audit writes are not reported as LLM steps:
 
 ```json
 {
@@ -54,6 +53,8 @@ because the project API requires it, but conceptually it is the agent action/too
   "steps": []
 }
 ```
+
+In `LLM_MODE=mock`, no fake LLM call is reported, so deterministic/mock runs can legitimately return `"steps": []`.
 
 ## Local Development
 
@@ -90,6 +91,27 @@ PINECONE_REVIEW_INDEX=airbnb-reviews
 PINECONE_REVIEW_NAMESPACE=airbnb-reviews
 ```
 
+Set `REQUIRE_PINECONE_RAG=true` for strict submission validation after Pinecone is configured. In that mode, Review RAG errors instead of silently falling back to CSV.
+
+## Supabase Setup
+
+Supabase is the primary runtime database for structured listing records, simulated listing page state, and audit logs.
+Run the schema in `supabase/schema.sql`, then seed the prepared CSV source files:
+
+```bash
+npm run seed-supabase
+```
+
+Required Supabase environment variables:
+
+```bash
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+REQUIRE_SUPABASE_RUNTIME=true
+```
+
+The service-role key is used server-side only. Local CSV fallback remains available for development when `REQUIRE_SUPABASE_RUNTIME` is not enabled.
+
 ## Vercel Deployment
 
 The project is Vercel-ready. Add these environment variables in Vercel before production deployment:
@@ -102,9 +124,14 @@ LLMOD_EMBEDDING_MODEL
 LLM_MODE
 LLM_LIVE_MODULES
 LLM_MAX_TOKENS
+EXECUTE_SERVER_BUDGET_MS
 PINECONE_API_KEY
 PINECONE_REVIEW_INDEX
 PINECONE_REVIEW_NAMESPACE
+REQUIRE_PINECONE_RAG
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+REQUIRE_SUPABASE_RUNTIME
 TEAM_STUDENT_1_NAME
 TEAM_STUDENT_1_EMAIL
 TEAM_STUDENT_2_NAME
@@ -139,3 +166,4 @@ The project is currently LLM-ready but runs in `LLM_MODE=mock`.
 No LLMod.ai calls are made unless `LLM_MODE=live` is explicitly enabled and the project owner approves token usage.
 Use `LLM_LIVE_MODULES=agent,supervisor` to enable both live decision modules, or restrict this list during testing to reduce spend.
 For low-cost validation, start with `LLM_LIVE_MODULES=agent` and a restore prompt before running a full evidence-retrieval edit.
+Normal end-to-end runs are designed for about 2 meaningful LLM calls in Live mode: one `Autonomous Listing Editor Agent` decision call at the agentic choice point and one `Supervisor / Control Agent` approval call. Deterministic states such as scope guard, listing load, approved execution, and audit writes do not call the LLM.

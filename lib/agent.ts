@@ -7,7 +7,7 @@ import {
   getReviewTextCountForListing
 } from "@/lib/data";
 import { enforceGuardrails, validateProposal } from "@/lib/guardrails";
-import { callLlmJson } from "@/lib/llmClient";
+import { callLlmJsonWithTrace } from "@/lib/llmClient";
 import { LISTING_EDITOR_SYSTEM_PROMPT, SUPERVISOR_SYSTEM_PROMPT } from "@/lib/prompts";
 import { classifyPromptScope } from "@/lib/requestScope";
 import {
@@ -223,20 +223,8 @@ export async function executeListingAgentWithOptions(prompt: string, options: Ex
 
 async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Promise<ExecuteResponse> {
   for (let iteration = 0; iteration < MAX_ACTIONS; iteration += 1) {
-    const nextAction = await decideNextAction(state);
+    const nextAction = await decideNextAction(state, steps);
     const parsedAction = AgentNextActionSchema.parse(nextAction);
-
-    steps.push(
-      step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
-        ...parsedAction,
-        action_number: iteration + 1,
-        llm_mode: state.deterministicPlanner
-          ? "deterministic_policy"
-          : process.env.LLM_MODE === "live"
-            ? "live_requested"
-            : "mock"
-      })
-    );
 
     state.selectedActions.push(parsedAction.next_action);
 
@@ -248,13 +236,6 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
         "The latest tool observation produced a stop decision, so no Supervisor approval or page edit is needed.",
         "Stop without page update.",
         true
-      );
-      steps.push(
-        step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
-          ...stopAction,
-          action_number: iteration + 1,
-          llm_mode: "runtime_auto_stop"
-        })
       );
       state.selectedActions.push(stopAction.next_action);
       await runAction(stopAction, state, steps);
@@ -380,14 +361,14 @@ async function executePortfolioAgent(
   };
 }
 
-async function decideNextAction(state: AgentState): Promise<AgentNextAction> {
+async function decideNextAction(state: AgentState, steps: AgentStep[]): Promise<AgentNextAction> {
   const mockResponse = chooseNextAction(state);
 
-  if (state.deterministicPlanner) {
+  if (state.deterministicPlanner || !shouldUseLlmForDecision(state)) {
     return enforceActionPreconditions(state, mockResponse);
   }
 
-  const response = await callLlmJson<AgentNextAction>({
+  const result = await callLlmJsonWithTrace<AgentNextAction>({
     module: "Autonomous Listing Editor Agent",
     messages: [
       { role: "system", content: LISTING_EDITOR_SYSTEM_PROMPT },
@@ -395,14 +376,82 @@ async function decideNextAction(state: AgentState): Promise<AgentNextAction> {
     ],
     mockResponse
   });
+  if (result.step) {
+    steps.push(result.step);
+  }
 
-  const parsed = AgentNextActionSchema.safeParse(response);
+  const parsed = AgentNextActionSchema.safeParse(result.output);
   if (!parsed.success) {
+    if (result.calledLive) {
+      throw new Error("Autonomous Listing Editor Agent returned JSON that failed runtime validation.");
+    }
     state.observations.push("LLM action output failed runtime validation; deterministic policy selected the next action.");
     return enforceActionPreconditions(state, mockResponse);
   }
 
   return enforceActionPreconditions(state, parsed.data);
+}
+
+function shouldUseLlmForDecision(state: AgentState): boolean {
+  if (process.env.LLM_MODE !== "live") {
+    return false;
+  }
+
+  if (
+    state.stopReason ||
+    state.auditLog ||
+    state.managerRecommendations ||
+    state.evidenceReport ||
+    !state.listing ||
+    state.supervisor?.decision === "Approve" ||
+    state.proposal?.action === "stop_without_action"
+  ) {
+    return false;
+  }
+
+  if (state.listing && !state.claims && !isRestoreRequest(state) && !needsEvidenceReport(state)) {
+    return false;
+  }
+
+  if (state.listing && isRestoreRequest(state) && !state.proposal) {
+    return false;
+  }
+
+  if (state.claims && isCopyPolishRequest(state) && !state.proposal) {
+    return false;
+  }
+
+  if (
+    state.reviews &&
+    !needsEvidenceReport(state) &&
+    needsGooglePlaces(state) &&
+    !state.places
+  ) {
+    return false;
+  }
+
+  if (
+    state.reviews &&
+    !needsEvidenceReport(state) &&
+    (!needsGooglePlaces(state) || state.places) &&
+    !state.signals
+  ) {
+    return false;
+  }
+
+  if (state.signals && needsManagerRecommendations(state) && !state.managerRecommendations) {
+    return false;
+  }
+
+  if (state.reviews && needsEvidenceReport(state) && !state.evidenceReport) {
+    return false;
+  }
+
+  if (state.proposal && !state.supervisor) {
+    return false;
+  }
+
+  return true;
 }
 
 function enforceActionPreconditions(state: AgentState, proposed: AgentNextAction): AgentNextAction {
@@ -710,7 +759,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         return false;
       }
 
-      state.page = getSimulatedListingPage(listing, state.currentDescriptionOverride);
+      state.page = await getSimulatedListingPage(listing, state.currentDescriptionOverride);
       steps.push(step("Listing Tools", "Retrieve the selected listing and simulated page state.", JSON.stringify(actionRequest.tool_input), {
         found: true,
         name_match: true,
@@ -959,7 +1008,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         proposed_description_addition: null,
         proposed_description_replacement: null,
         evidence_topics: ["Restore previous simulated version"],
-        reason: state.previousDescriptionOverride
+        reason: state.previousDescriptionOverride || state.page?.previousDescription
           ? "The manager rejected the latest simulated edit and asked to return the listing page to the previous version text."
           : "No previous simulated page version is available in the current demo session."
       });
@@ -967,7 +1016,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       steps.push(step("Edit & Decision Tools", "Restore the simulated listing page to the previous in-session version.", JSON.stringify(actionRequest.tool_input), {
         proposed_action: proposal,
         restore_source: "Previous in-session simulated page version",
-        previous_version_available: Boolean(state.previousDescriptionOverride),
+        previous_version_available: Boolean(state.previousDescriptionOverride || state.page?.previousDescription),
         editable_scope: "Simulated page description only"
       }));
       return true;
@@ -981,7 +1030,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       const guardrails = validateProposal(state.proposal, state);
       const signals = state.signals ?? [];
       const fallbackSupervisor = supervise(state.proposal, signals, guardrails.passed);
-      const supervisorDraft = await callLlmJson<SupervisorOutput>({
+      const supervisorResult = await callLlmJsonWithTrace<SupervisorOutput>({
         module: "Supervisor / Control Agent",
         messages: [
           { role: "system", content: SUPERVISOR_SYSTEM_PROMPT },
@@ -989,9 +1038,16 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         ],
         mockResponse: fallbackSupervisor
       });
-      const normalizedSupervisor = normalizeSupervisorOutput(supervisorDraft);
+      if (supervisorResult.step) {
+        steps.push(supervisorResult.step);
+      }
+
+      const normalizedSupervisor = normalizeSupervisorOutput(supervisorResult.output);
       const parsedSupervisor = SupervisorOutputSchema.safeParse(normalizedSupervisor);
       const llmOutputValid = parsedSupervisor.success;
+      if (!llmOutputValid && supervisorResult.calledLive) {
+        throw new Error("Supervisor / Control Agent returned JSON that failed runtime validation.");
+      }
       const safeSupervisor = parsedSupervisor.success
         ? parsedSupervisor.data
         : {
@@ -999,14 +1055,6 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
             rationale: `${fallbackSupervisor.rationale} LLM Supervisor output failed runtime validation, so deterministic Supervisor policy was used.`
           };
       state.supervisor = SupervisorOutputSchema.parse(enforceGuardrails(state.proposal, safeSupervisor, state));
-
-      steps.push(step("Supervisor / Control Agent", SUPERVISOR_SYSTEM_PROMPT, JSON.stringify({ proposal: state.proposal, signals, guardrails }), {
-        ...state.supervisor,
-        guardrails: {
-          ...guardrails,
-          llm_output_valid: llmOutputValid
-        }
-      }));
       return true;
     }
 
@@ -1030,7 +1078,7 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         throw new Error("Cannot execute approved proposal before listing, proposal, and Supervisor decision exist.");
       }
 
-      state.pageUpdate = applySimulatedPageUpdate(
+      state.pageUpdate = await applySimulatedPageUpdate(
         state.listing,
         state.proposal,
         state.supervisor.decision,
@@ -1039,13 +1087,14 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
       if (state.proposal.action === "restore_original_page") {
         resetReviewCoverageForListing(state.sessionId, state.listing.id);
       }
-      state.auditLog = createAuditLog({
+      state.auditLog = await createAuditLog({
         listing: state.listing,
         managerPrompt: state.prompt,
         decision: state.supervisor.decision,
         selectedActions: state.selectedActions,
-        evidenceSummary: state.signals ?? [],
+        evidenceSummary: auditEvidenceSummary(state),
         proposal: state.proposal,
+        pageUpdate: state.pageUpdate,
         supervisorRationale: state.supervisor.rationale,
         executedInDemoEnvironment: state.pageUpdate.status === "executed"
       });
@@ -1060,14 +1109,15 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
     case "stop_without_action": {
       if (state.listing && !state.auditLog) {
         const decision = state.supervisor?.decision ?? "Block";
-        state.pageUpdate = applySimulatedPageUpdate(state.listing, state.proposal ?? stopProposal(state.listing.id), decision);
-        state.auditLog = createAuditLog({
+        state.pageUpdate = await applySimulatedPageUpdate(state.listing, state.proposal ?? stopProposal(state.listing.id), decision);
+        state.auditLog = await createAuditLog({
           listing: state.listing,
           managerPrompt: state.prompt,
           decision,
           selectedActions: state.selectedActions,
-          evidenceSummary: state.signals ?? [],
+          evidenceSummary: auditEvidenceSummary(state),
           proposal: state.proposal ?? stopProposal(state.listing.id),
+          pageUpdate: state.pageUpdate,
           supervisorRationale: state.supervisor?.rationale ?? state.stopReason ?? "The agent stopped without an evidence-backed edit.",
           executedInDemoEnvironment: false
         });
@@ -2912,6 +2962,32 @@ function summarizeState(state: AgentState): string {
     runtime_observations: state.observations,
     terminal_reason: state.stopReason
   });
+}
+
+function auditEvidenceSummary(state: AgentState): Record<string, unknown> {
+  return {
+    review_rag_source: state.reviewSource ?? null,
+    pinecone_filter: state.listing
+      ? {
+          listing_id: state.listing.id,
+          source: "airbnb_review"
+        }
+      : null,
+    embedding_model: process.env.LLMOD_EMBEDDING_MODEL || "MB5R2CF-azure/text-embedding-3-small",
+    indexed_review_text_count: state.indexedReviewTextCount ?? null,
+    retrieved_review_count: state.reviews?.length ?? null,
+    relevant_review_count: state.relevantReviews?.length ?? null,
+    search_stats: state.reviewSearchStats
+      ? {
+          strategy: state.reviewSearchStats.strategy,
+          queries_run: state.reviewSearchStats.queriesRun,
+          coverage_checked: state.reviewSearchStats.coverageCoveredAfterCount,
+          coverage_total: state.reviewSearchStats.coverageTotalReviewsInScope,
+          coverage_complete: state.reviewSearchStats.coverageComplete
+        }
+      : null,
+    signals: state.signals ?? []
+  };
 }
 
 function step(module: string, systemPrompt: string, userPrompt: string, response: unknown): AgentStep {

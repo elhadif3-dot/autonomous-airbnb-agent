@@ -52,8 +52,10 @@ def main():
     for name, url, method, body in checks:
         status, payload = request_json(url, method, body)
         ok = status < 500 and payload.get("status", "ok") != "error"
+        if name.startswith("execute_"):
+            ok = ok and list(payload.keys()) == ["status", "error", "response", "steps"]
         if name == "execute_scope_guard":
-            ok = ok and len(payload.get("steps", [])) == 1
+            ok = ok and len(payload.get("steps", [])) == 0
 
         print(json.dumps({
             "check": name,

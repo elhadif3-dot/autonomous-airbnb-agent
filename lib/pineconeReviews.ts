@@ -19,6 +19,10 @@ type PineconeMatch = {
 let pineconeClient: Pinecone | null = null;
 
 export function isPineconeReviewsConfigured(): boolean {
+  if (process.env.DISABLE_PINECONE_RAG === "true") {
+    return false;
+  }
+
   return Boolean(process.env.PINECONE_API_KEY && pineconeReviewIndexName());
 }
 

@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
   return Response.json({
     status: "ok",
-    page: getSimulatedListingPage(listing),
+    page: await getSimulatedListingPage(listing),
     review_preview: await getReviewPreviewForListing(listing.id, 12),
     indexed_review_text_count: await getReviewTextCountForListing(listing.id)
   });

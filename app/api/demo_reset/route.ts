@@ -14,12 +14,10 @@ export async function POST(request: Request) {
     return Response.json({ status: "error", error: "Listing not found." }, { status: 404 });
   }
 
-  if (typeof body.session_id === "string") {
-    resetReviewCoverageForListing(body.session_id, listing.id);
-  }
+  resetReviewCoverageForListing(typeof body.session_id === "string" ? body.session_id : "api-default-session", listing.id);
 
   return Response.json({
     status: "ok",
-    page: resetSimulatedListingPage(listing)
+    page: await resetSimulatedListingPage(listing)
   });
 }

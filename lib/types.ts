@@ -117,6 +117,7 @@ export type EvidenceReport = {
 export type SimulatedListingPage = {
   listingId: string;
   currentDescription: string;
+  previousDescription?: string | null;
   updatedAt: string;
 };
 
@@ -139,6 +140,7 @@ export type AuditLogEntry = {
   selectedActions: string[];
   evidenceSummary: unknown;
   proposal: unknown;
+  pageUpdate?: SimulatedPageUpdate | null;
   supervisorRationale: string;
   executedInDemoEnvironment: boolean;
   liveAirbnbUpdated: false;

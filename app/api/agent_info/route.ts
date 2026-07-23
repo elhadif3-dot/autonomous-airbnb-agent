@@ -1,37 +1,33 @@
 export function GET() {
   return Response.json({
     description:
-      "FixGap AI is an autonomous demo agent for Lisbon short-term-rental managers. It compares a simulated Airbnb listing page with real guest reviews and nearby Google Places context, proposes narrow page edits, executes them only after Supervisor approval, and can also recommend fixable property improvements from guest reviews.",
+      "FixGap AI is an autonomous demo agent for Lisbon short-term-rental managers. It reviews a simulated Airbnb listing page against guest-review evidence and nearby context, then updates only allowed demo page text after Supervisor approval.",
     purpose:
-      "Keep Lisbon Airbnb listing pages aligned with real guest experience while avoiding invented claims, live scraping, out-of-scope requests, and unnecessary LLM calls.",
+      "Keep a Lisbon Airbnb listing page aligned with real guest experience while avoiding invented claims, live Airbnb access, pricing actions, booking actions, private messages, and unnecessary LLM calls.",
     prompt_template: {
       template:
-        "Selected listing id: <listing_id>\nHi, I manage several Airbnb listings in Lisbon. Handle this listing end to end: inspect the current simulated page, choose only the tools needed, use guest reviews as primary evidence, use Google Places only as supporting context when relevant, update only allowed page text if Supervisor approves, and record an audit log."
+        "Selected listing id: <listing_id>\nHandle this Lisbon Airbnb listing end to end: inspect the current simulated page, choose only the needed tools, use guest reviews as primary evidence, use Google Places only when nearby context is relevant, update allowed demo text only if safe, and explain what changed."
     },
     prompt_examples: [
       {
         prompt:
-          "Selected listing id: 176153\nHi, I manage several Airbnb listings in Lisbon. Please handle The White House end to end: compare the current page with guest reviews first, use nearby context only when useful, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.",
+          "Selected listing id: 176153\nPlease handle The White House end to end: compare the current page with guest reviews first, use nearby context only when useful, decide what is safe to improve, update the simulated listing page, and tell me exactly what changed.",
         full_response:
-          "Approved and executed in the demo environment. The agent selected actions dynamically, found review-backed expectation gaps, updated only the simulated page description, and recorded that no live Airbnb account was accessed.",
+          "Approved and executed in the demo environment. The agent found review-backed expectation gaps, updated only the simulated description, and recorded that no live Airbnb account was accessed.",
         steps: [
           {
             module: "Autonomous Listing Editor Agent",
             prompt: {
-              system_prompt: "Reason about the manager request, current state, and previous observations. Choose one next action.",
-              user_prompt: "State includes listing_id, selected_actions_so_far, observations gathered, and whether Supervisor approval exists."
+              system_prompt:
+                "Reason about the manager request, current state, and previous observations. Choose one next action from the allowed tool set. Return only valid JSON. Do not include markdown, prose, or code fences.",
+              user_prompt:
+                "{\"listing_id\":\"176153\",\"current_state\":\"listing and claims loaded; review evidence is missing\",\"available_actions\":[\"search_reviews\",\"get_google_places\",\"detect_guest_signals\",\"draft_listing_edit\",\"submit_to_supervisor\",\"stop_without_action\"]}"
             },
             response: {
               next_action: "search_reviews",
               tool_input: {
                 listing_id: "176153",
-                topics: ["review_alignment", "stairs", "temperature"],
-                search_mode: "adaptive_time_boxed_end_to_end_alignment",
-                time_budget_ms: 90000,
-                target_unique_reviews: 150,
-                coverage_window_size: 240,
-                coverage_scope_key:
-                  "alignment:cleanliness+comfort+hills+location+nearby_highlights+noise+review_alignment+space+stairs+temperature+view+wifi"
+                topics: ["review_alignment", "stairs", "temperature"]
               },
               short_rationale: "Guest reviews are the primary evidence source before drafting a page edit.",
               state_update: "Review evidence is missing.",
@@ -41,178 +37,66 @@ export function GET() {
           {
             module: "Supervisor / Control Agent",
             prompt: {
-              system_prompt: "Approve, revise, or block the proposed page action.",
-              user_prompt: "Review proposed nearby-highlights edit."
+              system_prompt:
+                "Approve, revise, or block the proposed simulated page action. Return only valid JSON. Do not include markdown, prose, or code fences.",
+              user_prompt:
+                "{\"proposal\":{\"action\":\"prepare_edit_proposal\",\"target_fields\":[\"description\"]},\"guardrails\":{\"passed\":true},\"signals\":[{\"topic\":\"Temperature expectations\",\"primaryEvidenceCount\":4}]}"
             },
             response: {
               decision: "Approve",
-              rationale: "The edit is narrow, review-backed, and limited to the simulated listing page."
-            }
-          },
-          {
-            module: "Edit & Decision Tools",
-            prompt: {
-              system_prompt: "Execute only approved simulated page updates and write an audit log.",
-              user_prompt: "Supervisor approved the proposal for the selected listing."
-            },
-            response: {
-              page_update: {
-                status: "executed",
-                field: "description",
-                liveAirbnbUpdated: false
-              }
+              rationale: "The edit is narrow, evidence-backed, and limited to the simulated listing page.",
+              required_change: null
             }
           }
         ]
       },
       {
         prompt:
-          "Selected listing id: 176153\nFor The White House, do not edit the page. Use guest reviews to tell me which fixable property or operations issues are bothering guests, what I should improve first, and why it could improve reviews, bookings, or listing quality.",
+          "Selected listing id: 45855270\nFor Rossio Garden Hotel, focus only on excellent nearby places within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance. If no nearby place is strong enough, stop without editing.",
         full_response:
-          "The agent did not edit the listing page. It used read-only guest reviews and returned manager-facing recommendations with priority, guest signal, suggested action, business value, and evidence count.",
+          "Approved and executed in the demo environment when strong nearby places were available. The agent added a concise nearby-place sentence with place names, Google ratings, review counts, and approximate distances.",
         steps: [
           {
             module: "Autonomous Listing Editor Agent",
             prompt: {
-              system_prompt: "Choose one next action from the current state.",
-              user_prompt: "Manager asked for fixable property or operations issues, not a page edit."
+              system_prompt:
+                "Reason about the manager request, current state, and previous observations. Choose one next action from the allowed tool set. Return only valid JSON. Do not include markdown, prose, or code fences.",
+              user_prompt:
+                "{\"listing_id\":\"45855270\",\"current_state\":\"listing and claims loaded; request asks for nearby value only\",\"available_actions\":[\"get_google_places\",\"stop_without_action\"]}"
             },
             response: {
-              next_action: "draft_manager_recommendations",
-              short_rationale: "The manager wants operational recommendations based on guest reviews.",
+              next_action: "get_google_places",
+              tool_input: {
+                listing_id: "45855270",
+                radius_km: 1
+              },
+              short_rationale: "The request is specifically about high-quality nearby places.",
+              state_update: "Google Places context is missing.",
               should_stop: false
-            }
-          },
-          {
-            module: "Manager Insight Tools",
-            prompt: {
-              system_prompt: "Draft property improvement recommendations from read-only guest reviews.",
-              user_prompt: "Review signals for selected listing."
-            },
-            response: {
-              recommendations: [
-                {
-                  topic: "Temperature comfort",
-                  priority: "high",
-                  evidenceCount: 2
-                }
-              ],
-              editable_scope: "No page update is executed by this tool."
-            }
-          }
-        ]
-      },
-      {
-        prompt:
-          "Selected listing id: 45855270\nFor Rossio Garden Hotel, focus only on excellent nearby places within about 1 km. Use Google Places to choose strong guest-facing places by rating, Google review count, category, and approximate distance. Do not search for general review gaps. If there are places strong enough to make the stay more attractive, add a concise natural sentence to the simulated description with the place names, ratings, Google review counts, and approximate distance. If no nearby place is strong enough, stop without editing.",
-        full_response:
-          "Approved and executed in the demo environment when strong nearby places were available. The agent used Google Places as environmental context, filtered by radius and quality, wrote a concise guest-facing nearby sentence, and recorded that the simulated page was updated only after Supervisor approval.",
-        steps: [
-          {
-            module: "Google Places Context",
-            prompt: {
-              system_prompt: "Retrieve nearby Google Places context for the selected listing and requested radius.",
-              user_prompt: "Find excellent nearby places within about 1 km."
-            },
-            response: {
-              nearby_places: [
-                {
-                  name: "La Festa Pizzaria Italiano",
-                  rating: 4.8,
-                  user_ratings_total: 48,
-                  approximate_distance_km: 0.6
-                }
-              ],
-              context_rule: "Google Places can support nearby guest value but does not replace guest-review evidence for experience claims."
             }
           },
           {
             module: "Supervisor / Control Agent",
             prompt: {
-              system_prompt: "Approve, revise, or block the proposed page action.",
-              user_prompt: "Review proposed nearby-place description sentence."
+              system_prompt:
+                "Approve, revise, or block the proposed simulated page action. Return only valid JSON. Do not include markdown, prose, or code fences.",
+              user_prompt:
+                "{\"proposal\":{\"action\":\"prepare_edit_proposal\",\"target_fields\":[\"description\"],\"evidence_topics\":[\"Rated nearby guest options\"]},\"guardrails\":{\"passed\":true}}"
             },
             response: {
               decision: "Approve",
-              rationale: "The edit is narrow, uses high-quality nearby context, includes rating/review-count/distance, and updates only the simulated page."
+              rationale: "The edit is narrow and includes rating, review count, category, and approximate distance.",
+              required_change: null
             }
           }
         ]
       },
       {
-        prompt: "Selected listing id: 45855270\nFind me car tires in Lisbon.",
+        prompt:
+          "Selected listing id: 45855270\nFind me car tires in Lisbon.",
         full_response:
           "I don't know how to complete that request with my allowed tools. No LLM, RAG, Google Places, or page edit was used.",
-        steps: [
-          {
-            module: "Input Scope Guard",
-            prompt: {
-              system_prompt: "Check whether the request belongs to the agent's allowed domain before using retrieval or LLM.",
-              user_prompt: "Find me car tires in Lisbon."
-            },
-            response: {
-              in_scope: false,
-              category: "out_of_scope",
-              reason: "The request is unrelated to Lisbon Airbnb listing-page management."
-            }
-          }
-        ]
-      },
-      {
-        prompt:
-          "Selected listing id: 45855270\nI did not like the simulated edit. Restore this listing page to the previous version text and record what you restored.",
-        full_response:
-          "Approved and executed in the demo environment. The agent restored the simulated listing description to the previous in-session version and wrote an audit log.",
-        steps: [
-          {
-            module: "Autonomous Listing Editor Agent",
-            prompt: {
-              system_prompt: "Choose one next action from the current state.",
-              user_prompt: "Manager asked to undo the simulated page edit."
-            },
-            response: {
-              next_action: "restore_previous_page",
-              short_rationale: "The request is a controlled restore, so review retrieval and Google Places are not needed.",
-              should_stop: false
-            }
-          }
-        ]
-      },
-      {
-        prompt:
-          "Selected listing id: 45855270\nFor Rossio Garden Hotel, do not search reviews and do not use Google Places. Polish only the current simulated description so it reads more natural, persuasive, and guest-facing. Preserve all existing facts, place names, ratings, Google review counts, distances, amenities, and evidence-backed notes.",
-        full_response:
-          "Approved and executed in the demo environment. The agent rewrote the current description wording without adding new facts, without Review RAG, and without Google Places.",
-        steps: [
-          {
-            module: "Autonomous Listing Editor Agent",
-            prompt: {
-              system_prompt: "Choose one next action from the current state.",
-              user_prompt: "Manager asked for copy polish only."
-            },
-            response: {
-              next_action: "draft_description_polish",
-              short_rationale: "The request is a wording polish, not a review-gap audit.",
-              should_stop: false
-            }
-          },
-          {
-            module: "Edit & Decision Tools",
-            prompt: {
-              system_prompt: "Draft a copy-polish replacement for the current simulated description.",
-              user_prompt: "Current page description only."
-            },
-            response: {
-              proposed_action: {
-                action: "replace_description",
-                target_fields: ["description"],
-                evidence_topics: ["Copy polish only"]
-              },
-              retrieval_used: false,
-              google_places_used: false
-            }
-          }
-        ]
+        steps: []
       }
     ]
   });

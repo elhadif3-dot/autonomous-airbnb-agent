@@ -1,6 +1,6 @@
 # Data Contracts
 
-This file defines the planned production data shape before connecting live services.
+This file defines the production runtime data shape. The CSV files remain seed/source files; when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured, the app reads structured runtime data and writes simulated page state/audits through Supabase.
 
 ## Supabase Tables
 
@@ -38,8 +38,7 @@ Required columns:
 
 - `listing_id` text primary key references `listings(id)`
 - `current_description` text
-- `current_house_rules` text
-- `current_amenities_note` text
+- `previous_description` text nullable
 - `updated_at` timestamptz
 
 ### `audit_logs`
@@ -55,6 +54,7 @@ Required columns:
 - `selected_tools` jsonb
 - `evidence_summary` jsonb
 - `proposal` jsonb
+- `page_update` jsonb
 - `supervisor_rationale` text
 - `executed_in_demo_environment` boolean
 - `live_airbnb_updated` boolean default false
@@ -120,3 +120,9 @@ Metadata:
 - Keep `/api/execute` under Vercel's 300 second limit.
 - Never fallback to another listing when a listing id is missing or invalid.
 - Approved actions must update `simulated_listing_pages` and create an `audit_logs` row.
+
+## Setup Files
+
+- SQL schema: `supabase/schema.sql`
+- Seed command: `npm run seed-supabase`
+- Strict runtime flag: set `REQUIRE_SUPABASE_RUNTIME=true` after Supabase is seeded and configured in Vercel.
