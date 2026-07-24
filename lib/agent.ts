@@ -2941,6 +2941,7 @@ function summarizeState(state: AgentState): string {
   return JSON.stringify({
     listing_id: state.listingId,
     intent: state.intent,
+    available_actions: availableActionsForState(state),
     selected_actions_so_far: state.selectedActions,
     deterministic_planner: Boolean(state.deterministicPlanner),
     has_listing: Boolean(state.listing),
@@ -2964,6 +2965,74 @@ function summarizeState(state: AgentState): string {
     runtime_observations: state.observations,
     terminal_reason: state.stopReason
   });
+}
+
+function availableActionsForState(state: AgentState): AgentNextAction["next_action"][] {
+  if (state.stopReason || state.auditLog || state.managerRecommendations || state.evidenceReport) {
+    return ["stop_without_action"];
+  }
+
+  if (!state.listing) {
+    return ["get_listing_data"];
+  }
+
+  if (isRestoreRequest(state) && !state.proposal) {
+    return [isRestorePreviousRequest(state) ? "restore_previous_page" : "restore_original_page"];
+  }
+
+  if (!state.claims && !needsEvidenceReport(state)) {
+    return ["extract_claims"];
+  }
+
+  if (isCopyPolishRequest(state) && !state.proposal) {
+    return ["draft_description_polish"];
+  }
+
+  if (needsEvidenceReport(state)) {
+    if (!state.reviews) {
+      return ["search_reviews"];
+    }
+
+    if (!state.evidenceReport) {
+      return ["draft_evidence_report"];
+    }
+
+    return ["stop_without_action"];
+  }
+
+  if (!state.reviews) {
+    return ["search_reviews"];
+  }
+
+  if (needsGooglePlaces(state) && !state.places) {
+    return ["get_google_places"];
+  }
+
+  if (!state.signals) {
+    return ["detect_guest_signals"];
+  }
+
+  if (needsManagerRecommendations(state) && !state.managerRecommendations) {
+    return ["draft_manager_recommendations"];
+  }
+
+  if (!state.proposal) {
+    return ["draft_listing_edit", "stop_without_action"];
+  }
+
+  if (!state.supervisor) {
+    return ["submit_to_supervisor"];
+  }
+
+  if (state.supervisor.decision === "Revise" && state.reviseCount < 1) {
+    return ["replan"];
+  }
+
+  if (state.supervisor.decision === "Approve" && !state.auditLog) {
+    return ["prepare_edit_proposal"];
+  }
+
+  return ["stop_without_action"];
 }
 
 function auditEvidenceSummary(state: AgentState): Record<string, unknown> {

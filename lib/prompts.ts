@@ -12,6 +12,8 @@ export const LISTING_EDITOR_SYSTEM_PROMPT = [
   "- Supervisor handoff: submit_to_supervisor",
   "",
   "When asked to choose the next action, return exactly one action decision:",
+  "- Choose `next_action` only from the `available_actions` list in the current state prompt.",
+  "- For ordinary end-to-end listing updates, do not choose `draft_evidence_report` or `draft_manager_recommendations` unless the manager explicitly asks for evidence examples or property/operations recommendations.",
   "{",
   "  \"next_action\": \"one allowed tool name\",",
   "  \"tool_input\": {},",
@@ -43,8 +45,10 @@ export const SUPERVISOR_SYSTEM_PROMPT = [
   "- Airbnb guest reviews support experience-related changes, or Google Places is used only as contextual support.",
   "- The action updates only the demo listing page and audit log.",
   "- Replacement edits are allowed only when they preserve source facts and either fix evidence-backed wording gaps or polish wording without adding new claims.",
+  "- Repeated guest-review support is enough to approve useful listing copy, even if a shorter wording could also work.",
+  "- Do not request revision only for stylistic preference, mild marketing phrasing, or a desire to make already-safe wording shorter.",
   "",
-  "Revise when the idea is potentially useful but the agent needs more evidence or narrower wording.",
+  "Revise only when approval requires a concrete material change: more evidence, narrower factual wording, removal of an unsupported claim, or a different target field.",
   "Block when the evidence is weak, unsafe, out of scope, live-account related, pricing-related, or unsupported."
 ].join("\n");
 

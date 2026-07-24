@@ -589,7 +589,7 @@ function ReservationCard({ listing }: { listing: DemoListing }) {
 }
 
 function AgentResult({ result, auditLog }: { result: ExecuteResponse; auditLog: AuditLogEntry | null }) {
-  const supervisorStep = result.steps.find((step) => step.module === "Supervisor / Control Agent");
+  const supervisorStep = latestSupervisorStep(result.steps);
   const decision = getDecision(supervisorStep);
   const audit = result.audit_log ?? auditLog;
   const pageUpdate = result.page_update ?? audit?.pageUpdate ?? null;
@@ -798,6 +798,16 @@ function ReviewList({
       ) : null}
     </>
   );
+}
+
+function latestSupervisorStep(steps: AgentStep[]): AgentStep | undefined {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    if (steps[index].module === "Supervisor / Control Agent") {
+      return steps[index];
+    }
+  }
+
+  return undefined;
 }
 
 function getDecision(step?: AgentStep): string | null {
