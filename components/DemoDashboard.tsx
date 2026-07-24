@@ -816,7 +816,26 @@ function getDecision(step?: AgentStep): string | null {
   }
 
   const response = step.response as { decision?: string };
-  return response.decision ?? null;
+  return formatDecision(response.decision);
+}
+
+function formatDecision(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "approve") {
+    return "Approve";
+  }
+  if (normalized === "revise") {
+    return "Revise";
+  }
+  if (normalized === "block") {
+    return "Block";
+  }
+
+  return value;
 }
 
 function getEvidenceTopics(proposal: unknown): string[] {
@@ -882,9 +901,10 @@ function summarizeTraceStep(step: AgentStep): TraceSummary {
   }
 
   if (typeof response.decision === "string") {
+    const decision = formatDecision(response.decision) ?? response.decision;
     return {
-      title: `Supervisor ${response.decision}`,
-      decision: response.decision,
+      title: `Supervisor ${decision}`,
+      decision,
       rationale: stringValue(response.rationale),
       observation: summarizeGuardrails(response.guardrails)
     };
