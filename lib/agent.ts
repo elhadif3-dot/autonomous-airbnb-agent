@@ -1063,16 +1063,10 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
         ],
         mockResponse: fallbackSupervisor
       });
-      if (supervisorResult.step) {
-        steps.push(supervisorResult.step);
-      }
 
       const normalizedSupervisor = normalizeSupervisorOutput(supervisorResult.output);
       const parsedSupervisor = SupervisorOutputSchema.safeParse(normalizedSupervisor);
       const llmOutputValid = parsedSupervisor.success;
-      if (!llmOutputValid && supervisorResult.calledLive) {
-        throw new Error("Supervisor / Control Agent returned JSON that failed runtime validation.");
-      }
       const safeSupervisor = parsedSupervisor.success
         ? parsedSupervisor.data
         : {
@@ -1080,6 +1074,21 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
             rationale: `${fallbackSupervisor.rationale} LLM Supervisor output failed runtime validation, so deterministic Supervisor policy was used.`
           };
       state.supervisor = SupervisorOutputSchema.parse(enforceGuardrails(state.proposal, safeSupervisor, state));
+      steps.push({
+        module: "Supervisor / Control Agent",
+        prompt: supervisorResult.step?.prompt ?? {
+          system_prompt: SUPERVISOR_SYSTEM_PROMPT,
+          user_prompt: JSON.stringify({ proposal: state.proposal, signals, guardrails })
+        },
+        response: {
+          ...state.supervisor,
+          guardrails: {
+            ...guardrails,
+            llm_output_valid: llmOutputValid,
+            live_llm_called: supervisorResult.calledLive
+          }
+        }
+      });
       return true;
     }
 
@@ -2611,10 +2620,25 @@ function normalizeSupervisorOutput(value: unknown): unknown {
           ? "Block"
           : draft.decision;
 
+  const rationale =
+    typeof draft.rationale === "string"
+      ? draft.rationale
+      : typeof draft.reason === "string"
+        ? draft.reason
+        : Array.isArray(draft.reasons)
+          ? draft.reasons.map((reason) => String(reason)).join(" ")
+          : "Supervisor returned a decision without a rationale.";
+
   return {
     ...draft,
     decision,
-    rationale: typeof draft.rationale === "string" ? draft.rationale : draft.reason
+    rationale,
+    required_change:
+      typeof draft.required_change === "string"
+        ? draft.required_change
+        : typeof draft.revision_instructions === "string"
+          ? draft.revision_instructions
+          : undefined
   };
 }
 
