@@ -158,7 +158,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     const timeoutId = window.setTimeout(() => controller.abort(), 130000);
 
     try {
-      const response = await fetch("/api/execute", {
+      const response = await fetch("/api/demo_execute", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -504,7 +504,7 @@ function AgentFeatureBar({
 
       {!result ? (
       <div className="emptyState">
-          LLM Steps Trace shows only real LLM calls returned by /api/execute. Page state and audit records are kept server-side.
+          Action Trace shows the runtime actions, tool observations, Supervisor decision, page update, and audit record for the demo run.
       </div>
       ) : (
         <AgentResult result={result} auditLog={auditLog} />

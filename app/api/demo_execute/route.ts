@@ -1,12 +1,5 @@
 import { executeListingAgentWithOptions } from "@/lib/agent";
-import type { AgentStep, ExecuteResponse, ReviewCoverageSnapshot } from "@/lib/types";
-
-type PublicExecuteResponse = {
-  status: "ok" | "error";
-  error: string | null;
-  response: string | null;
-  steps: AgentStep[];
-};
+import type { ExecuteResponse, ReviewCoverageSnapshot } from "@/lib/types";
 
 const DEFAULT_SERVER_BUDGET_MS = 240_000;
 
@@ -47,8 +40,7 @@ export async function POST(request: Request) {
       }),
       serverBudgetMs()
     );
-    const publicResponse = toPublicExecuteResponse(result);
-    return Response.json(publicResponse, { status: publicResponse.status === "error" ? 400 : 200 });
+    return Response.json(result, { status: result.status === "error" ? 400 : 200 });
   } catch (error) {
     return Response.json(
       errorResponse(error instanceof Error ? `Agent execution failed: ${error.message}` : "Agent execution failed."),
@@ -57,51 +49,16 @@ export async function POST(request: Request) {
   }
 }
 
-function toPublicExecuteResponse(result: ExecuteResponse): PublicExecuteResponse {
-  return {
-    status: result.status,
-    error: result.error,
-    response: result.response,
-    steps: filterRealLlmSteps(result.steps)
-  };
-}
-
-function errorResponse(error: string): PublicExecuteResponse {
+function errorResponse(error: string): ExecuteResponse {
   return {
     status: "error",
     error,
     response: null,
-    steps: []
+    steps: [],
+    page_update: null,
+    portfolio_update: null,
+    audit_log: null
   };
-}
-
-function filterRealLlmSteps(steps: AgentStep[]): AgentStep[] {
-  return steps.filter(isRealLlmStep).map((item) => ({
-    module: item.module,
-    prompt: {
-      system_prompt: item.prompt.system_prompt,
-      user_prompt: item.prompt.user_prompt
-    },
-    response: item.response
-  }));
-}
-
-function isRealLlmStep(step: AgentStep): boolean {
-  const response = isRecord(step.response) ? step.response : {};
-  if (step.module === "Supervisor / Control Agent") {
-    const guardrails = isRecord(response.guardrails) ? response.guardrails : {};
-    return guardrails.live_llm_called === true;
-  }
-
-  if (step.module === "Autonomous Listing Editor Agent") {
-    return response.llm_mode === undefined && response.next_action !== undefined;
-  }
-
-  return false;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {

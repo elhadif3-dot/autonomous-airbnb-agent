@@ -81,6 +81,7 @@ type AgentState = {
   auditLog?: AuditLogEntry | null;
   reviewCoverageState?: ReviewCoverageSnapshot;
   nextReviewCoverageState?: ReviewCoverageSnapshot;
+  rejectedTopics?: string[];
   reviseCount: number;
   requireMoreEvidence: boolean;
   stopReason?: string;
@@ -941,7 +942,8 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
           state.signals,
           state.page?.currentDescription ?? state.listing.description,
           state.reviewSearchStats,
-          state.intent
+          state.intent,
+          state.rejectedTopics ?? []
         )
       );
       state.proposal = proposal;
@@ -1095,6 +1097,10 @@ async function runAction(actionRequest: AgentNextAction, state: AgentState, step
     case "replan": {
       state.reviseCount += 1;
       state.requireMoreEvidence = true;
+      state.rejectedTopics = [
+        ...(state.rejectedTopics ?? []),
+        ...topicsRejectedBySupervisor(state.proposal, state.supervisor)
+      ].filter((topic, index, topics) => topics.indexOf(topic) === index);
       state.supervisor = undefined;
       state.proposal = undefined;
       state.signals = undefined;
@@ -1997,12 +2003,55 @@ function limitSignalEvidence(signal: Signal): Signal {
   };
 }
 
+function topicsRejectedBySupervisor(
+  proposal: EditProposal | undefined,
+  supervisor: SupervisorOutput | undefined
+): string[] {
+  if (!proposal || !supervisor || supervisor.decision !== "Revise") {
+    return [];
+  }
+
+  const supervisorText = `${supervisor.rationale} ${supervisor.required_change ?? ""}`.toLowerCase();
+  const rejected: string[] = [];
+
+  if (
+    proposal.evidence_topics?.includes("Remote-work readiness") &&
+    /remote|wi-?fi|internet|work setup|overreach|overstat|unsupported/.test(supervisorText)
+  ) {
+    rejected.push("Remote-work readiness");
+  }
+
+  return rejected;
+}
+
+function isSafePageEditSignal(listing: Listing, signal: Signal, intent: string[]): boolean {
+  if (signal.topic !== "Remote-work readiness") {
+    return true;
+  }
+
+  const explicitConnectivityRequest = intent.includes("wifi");
+  const hasWifiAmenity = listing.amenities.some((amenity) => amenity.toLowerCase().includes("wifi"));
+  const evidenceText = signal.evidence.join(" ").toLowerCase();
+  const hasNegativeConnectivityEvidence =
+    /hit or miss|bad|poor|weak|slow|problem|issue|didn.?t work|doesn.?t work|not work|unreliable|spotty|unstable|no wi-?fi|without wi-?fi/.test(
+      evidenceText
+    );
+  const positiveConnectivityEvidence = signal.evidence.filter(
+    (item) =>
+      /wi-?fi|internet|connection/i.test(item) &&
+      /good|great|strong|fast|reliable|worked well|excellent/i.test(item)
+  ).length;
+
+  return explicitConnectivityRequest && hasWifiAmenity && !hasNegativeConnectivityEvidence && positiveConnectivityEvidence >= 3;
+}
+
 function draftEdit(
   listing: Listing,
   signals: Signal[],
   currentDescription: string,
   reviewStats?: ReviewSearchStats,
-  intent: string[] = []
+  intent: string[] = [],
+  rejectedTopics: string[] = []
 ): EditProposal {
   const nearbyPlacesOnly = intent.includes("nearby_highlights") && !intent.includes("review_alignment");
   const candidateSignals = nearbyPlacesOnly
@@ -2013,6 +2062,8 @@ function draftEdit(
       (signal) =>
         signal.type !== "insufficient_evidence" &&
         signal.primaryEvidenceCount >= 2 &&
+        !rejectedTopics.includes(signal.topic) &&
+        isSafePageEditSignal(listing, signal, intent) &&
         !descriptionAlreadyCoversSignal(currentDescription, signal.topic)
     )
     .sort((a, b) => signalPriority(a) - signalPriority(b));
@@ -2104,10 +2155,10 @@ function draftEdit(
       return "Reviews repeatedly describe the place as clean and well kept, which helps guests book with more confidence.";
     }
     if (signal.topic === "Guest-confirmed comfort") {
-      return "Guests repeatedly mention a comfortable stay and good sleep experience, making the property a strong fit after full days exploring Lisbon.";
+      return "Guests often describe the stay as comfortable, which adds useful reassurance for travelers using the property as a central Lisbon base.";
     }
     if (signal.topic === "Remote-work readiness") {
-      return "For guests mixing travel with work, reviews and listed amenities support a practical short remote-work setup.";
+      return "Wi-Fi is listed as an amenity, and guest feedback supports mentioning connectivity only in cautious, factual terms for travelers who may need it.";
     }
     if (signal.topic === "Rated nearby guest options") {
       const places = signal.evidence.filter(isFormattedGooglePlace).slice(-3);
