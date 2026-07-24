@@ -1746,7 +1746,7 @@ function guestPlaceScore(place: Place): number {
 
 function formatPlaceForGuestCopy(place: Place): string {
   const rating = place.rating ? `${place.rating.toFixed(1)}/5` : "highly rated";
-  const reviews = place.numberOfReviews > 0 ? `, ${place.numberOfReviews} Google reviews` : "";
+  const reviews = place.numberOfReviews > 0 ? `, ${place.numberOfReviews} Google review texts in the dataset` : "";
   const distance = approximateDistance(place.distanceKm);
   return `${place.placeName} (${rating}${reviews}${distance})`;
 }
@@ -2012,6 +2012,13 @@ function topicsRejectedBySupervisor(
   }
 
   const supervisorText = `${supervisor.rationale} ${supervisor.required_change ?? ""}`.toLowerCase();
+  const proposalText = [
+    proposal.proposed_description_addition,
+    proposal.proposed_description_replacement
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
   const rejected: string[] = [];
 
   if (
@@ -2019,6 +2026,24 @@ function topicsRejectedBySupervisor(
     /remote|wi-?fi|internet|work setup|overreach|overstat|unsupported/.test(supervisorText)
   ) {
     rejected.push("Remote-work readiness");
+  }
+
+  if (
+    /google places|nearby|specific venues|ratings?|review counts?|distances?|marketing.?like/.test(supervisorText) ||
+    /google places context|google reviews|google review texts/.test(proposalText)
+  ) {
+    rejected.push("Rated nearby guest options", "Rated nearby dining options");
+  }
+
+  if (/street activity|lively center|noise|noisy/.test(supervisorText) || /street activity may be part|lively center/.test(proposalText)) {
+    rejected.push("Noise expectations");
+  }
+
+  if (
+    /comfortable walking shoes|nearby streets are steep|historic lisbon hills/.test(supervisorText) ||
+    /comfortable walking shoes|nearby streets are steep/.test(proposalText)
+  ) {
+    rejected.push("Historic Lisbon hills");
   }
 
   return rejected;
@@ -2172,7 +2197,12 @@ function draftEdit(
   });
 
   const proposedAddition = additions.join(" ");
-  const revisedDescription = reviseDescriptionForEvidenceBackedGaps(currentDescription, selectedSignals, proposedAddition);
+  const revisedDescription = reviseDescriptionForEvidenceBackedGaps(
+    currentDescription,
+    selectedSignals,
+    proposedAddition,
+    rejectedTopics
+  );
   if (revisedDescription && normalizeTextForCoverage(revisedDescription) !== normalizeTextForCoverage(currentDescription)) {
     return {
       action: "replace_description",
@@ -2220,13 +2250,14 @@ function draftDescriptionPolish(listing: Listing, currentDescription: string): E
 function reviseDescriptionForEvidenceBackedGaps(
   currentDescription: string,
   signals: Signal[],
-  proposedAddition: string
+  proposedAddition: string,
+  rejectedTopics: string[] = []
 ): string | null {
-  if (!signals.some((signal) => signal.type === "accuracy_gap")) {
+  if (!signals.some((signal) => signal.type === "accuracy_gap") && rejectedTopics.length === 0) {
     return null;
   }
 
-  let revised = currentDescription;
+  let revised = removeRejectedTopicText(currentDescription, rejectedTopics);
   if (signals.some((signal) => signal.topic === "Noise expectations")) {
     revised = revised
       .replace(/\bvery calm area\b/gi, "central Lisbon area")
@@ -2239,6 +2270,106 @@ function reviseDescriptionForEvidenceBackedGaps(
   revised = polishDescriptionCopy(revised);
   revised = appendTextIfMissing(revised, proposedAddition);
   return revised;
+}
+
+function removeRejectedTopicText(description: string, rejectedTopics: string[]): string {
+  if (rejectedTopics.length === 0) {
+    return description;
+  }
+
+  const rejectNearby =
+    rejectedTopics.includes("Rated nearby guest options") ||
+    rejectedTopics.includes("Rated nearby dining options");
+  const rejectRemoteWork = rejectedTopics.includes("Remote-work readiness");
+  const rejectNoise = rejectedTopics.includes("Noise expectations");
+  const rejectHills = rejectedTopics.includes("Historic Lisbon hills");
+
+  let cleaned = description;
+
+  if (rejectNearby) {
+    cleaned = cleaned
+      .replace(/\s*Guest location reviews support highlighting[\s\S]*?(?=\n\n|$)/gi, "")
+      .replace(/\s*Guests mention the convenience of nearby places to eat[\s\S]*?(?=\n\n|$)/gi, "")
+      .replace(/\s*Nearby highlights include[\s\S]*?(?=\n\n|$)/gi, "");
+  }
+
+  if (rejectRemoteWork) {
+    cleaned = cleaned
+      .replace(/\s*For guests mixing travel with work[\s\S]*?(?=\n\n|$)/gi, "")
+      .replace(/\s*Wi-?Fi is listed as an amenity[\s\S]*?(?=\n\n|$)/gi, "");
+  }
+
+  const paragraphs = cleaned
+    .split(/\n{2,}/)
+    .map((paragraph) => sentenceSplit(paragraph).filter((sentence) => {
+      const normalized = normalizeTextForCoverage(sentence);
+
+      if (
+        rejectNearby &&
+        includesAnyNormalized(normalized, [
+          "google places context",
+          "google reviews",
+          "google review texts",
+          "highly rated nearby",
+          "nearby dining options",
+          "nearby options such as",
+          "nearby highlights include",
+          "specific venues"
+        ])
+      ) {
+        return false;
+      }
+
+      if (
+        rejectRemoteWork &&
+        includesAnyNormalized(normalized, [
+          "remote work setup",
+          "mixing travel with work",
+          "wifi is listed",
+          "wi fi is listed",
+          "connectivity only"
+        ])
+      ) {
+        return false;
+      }
+
+      if (
+        rejectNoise &&
+        includesAnyNormalized(normalized, [
+          "street activity may be part",
+          "lively center",
+          "busy central",
+          "part of the experience"
+        ])
+      ) {
+        return false;
+      }
+
+      if (
+        rejectHills &&
+        includesAnyNormalized(normalized, [
+          "comfortable walking shoes",
+          "nearby streets are steep"
+        ])
+      ) {
+        return false;
+      }
+
+      return true;
+    }).join(" "))
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return paragraphs.join("\n\n").trim() || description;
+}
+
+function sentenceSplit(paragraph: string): string[] {
+  const matches = paragraph.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
+  return matches?.map((sentence) => sentence.trim()).filter(Boolean) ?? [paragraph.trim()].filter(Boolean);
+}
+
+function includesAnyNormalized(value: string, patterns: string[]): boolean {
+  return patterns.some((pattern) => value.includes(normalizeTextForCoverage(pattern)));
 }
 
 function polishDescriptionCopy(description: string): string {

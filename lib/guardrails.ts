@@ -16,6 +16,7 @@ type EvidenceState = {
     type: string;
     primaryEvidenceCount?: number;
   }>;
+  rejectedTopics?: string[];
 };
 
 const forbiddenPatterns = [
@@ -109,6 +110,7 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
     if (
       currentDescription &&
       proposal.proposed_description_replacement &&
+      !allowsProtectedNearbyFactCleanup(state) &&
       !preservesProtectedFacts(currentDescription, proposal.proposed_description_replacement)
     ) {
       violations.push("protected_fact_removed_or_changed");
@@ -121,6 +123,14 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
   };
 }
 
+function allowsProtectedNearbyFactCleanup(state?: EvidenceState): boolean {
+  return Boolean(
+    state?.rejectedTopics?.some(
+      (topic) => topic === "Rated nearby guest options" || topic === "Rated nearby dining options"
+    )
+  );
+}
+
 function preservesProtectedFacts(before: string, after: string): boolean {
   const normalizedAfter = normalizedText(after);
   return protectedFacts(before).every((fact) => normalizedAfter.includes(normalizedText(fact)));
@@ -131,8 +141,9 @@ function protectedFacts(value: string): string[] {
   const patterns = [
     /\b\d+(?:\.\d+)?\/5\b/g,
     /\b\d+\s+Google reviews\b/gi,
+    /\b\d+\s+Google review texts in the dataset\b/gi,
     /\babout\s+\d+(?:\.\d+)?\s+km away\b/gi,
-    /\b[A-Z][A-Za-z0-9'&(). -]{2,80}\s+\(\d+(?:\.\d+)?\/5,\s+\d+\s+Google reviews[^)]*\)/g
+    /\b[A-Z][A-Za-z0-9'&(). -]{2,80}\s+\(\d+(?:\.\d+)?\/5,\s+\d+\s+Google (?:reviews|review texts in the dataset)[^)]*\)/g
   ];
 
   for (const pattern of patterns) {
