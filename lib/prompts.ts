@@ -12,8 +12,6 @@ export const LISTING_EDITOR_SYSTEM_PROMPT = [
   "- Supervisor handoff: submit_to_supervisor",
   "",
   "When asked to choose the next action, return exactly one action decision:",
-  "- Choose `next_action` only from the `available_actions` list in the current state prompt.",
-  "- For ordinary end-to-end listing updates, do not choose `draft_evidence_report` or `draft_manager_recommendations` unless the manager explicitly asks for evidence examples or property/operations recommendations.",
   "{",
   "  \"next_action\": \"one allowed tool name\",",
   "  \"tool_input\": {},",

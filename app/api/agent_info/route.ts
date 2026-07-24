@@ -16,25 +16,6 @@ export function GET() {
           "Approved and executed in the demo environment. The agent found review-backed expectation gaps, updated only the simulated description, and recorded that no live Airbnb account was accessed.",
         steps: [
           {
-            module: "Autonomous Listing Editor Agent",
-            prompt: {
-              system_prompt:
-                "Reason about the manager request, current state, and previous observations. Choose one next action from the allowed tool set. Return only valid JSON. Do not include markdown, prose, or code fences.",
-              user_prompt:
-                "{\"listing_id\":\"176153\",\"current_state\":\"listing and claims loaded; review evidence is missing\",\"available_actions\":[\"search_reviews\",\"get_google_places\",\"detect_guest_signals\",\"draft_listing_edit\",\"submit_to_supervisor\",\"stop_without_action\"]}"
-            },
-            response: {
-              next_action: "search_reviews",
-              tool_input: {
-                listing_id: "176153",
-                topics: ["review_alignment", "stairs", "temperature"]
-              },
-              short_rationale: "Guest reviews are the primary evidence source before drafting a page edit.",
-              state_update: "Review evidence is missing.",
-              should_stop: false
-            }
-          },
-          {
             module: "Supervisor / Control Agent",
             prompt: {
               system_prompt:
@@ -56,25 +37,6 @@ export function GET() {
         full_response:
           "Approved and executed in the demo environment when strong nearby places were available. The agent added a concise nearby-place sentence with place names, Google ratings, review counts, and approximate distances.",
         steps: [
-          {
-            module: "Autonomous Listing Editor Agent",
-            prompt: {
-              system_prompt:
-                "Reason about the manager request, current state, and previous observations. Choose one next action from the allowed tool set. Return only valid JSON. Do not include markdown, prose, or code fences.",
-              user_prompt:
-                "{\"listing_id\":\"45855270\",\"current_state\":\"listing and claims loaded; request asks for nearby value only\",\"available_actions\":[\"get_google_places\",\"stop_without_action\"]}"
-            },
-            response: {
-              next_action: "get_google_places",
-              tool_input: {
-                listing_id: "45855270",
-                radius_km: 1
-              },
-              short_rationale: "The request is specifically about high-quality nearby places.",
-              state_update: "Google Places context is missing.",
-              should_stop: false
-            }
-          },
           {
             module: "Supervisor / Control Agent",
             prompt: {
