@@ -226,6 +226,18 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
     const nextAction = await decideNextAction(state, steps);
     const parsedAction = AgentNextActionSchema.parse(nextAction);
 
+    steps.push(
+      step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
+        ...parsedAction,
+        action_number: iteration + 1,
+        llm_mode: state.deterministicPlanner
+          ? "deterministic_policy"
+          : process.env.LLM_MODE === "live" && process.env.ENABLE_AGENT_DECISION_LLM === "true"
+            ? "live_requested"
+            : "deterministic_policy"
+      })
+    );
+
     state.selectedActions.push(parsedAction.next_action);
 
     const shouldContinue = await runAction(parsedAction, state, steps);
@@ -236,6 +248,13 @@ async function runSingleListingAgent(state: AgentState, steps: AgentStep[]): Pro
         "The latest tool observation produced a stop decision, so no Supervisor approval or page edit is needed.",
         "Stop without page update.",
         true
+      );
+      steps.push(
+        step("Autonomous Listing Editor Agent", LISTING_EDITOR_SYSTEM_PROMPT, summarizeState(state), {
+          ...stopAction,
+          action_number: iteration + 1,
+          llm_mode: "runtime_auto_stop"
+        })
       );
       state.selectedActions.push(stopAction.next_action);
       await runAction(stopAction, state, steps);

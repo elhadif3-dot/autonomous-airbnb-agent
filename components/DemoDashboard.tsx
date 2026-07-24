@@ -29,7 +29,7 @@ import {
   Wifi,
   Wind
 } from "lucide-react";
-import type { AgentStep, AuditLogEntry, ExecuteResponse, Listing, Review } from "@/lib/types";
+import type { AgentStep, AuditLogEntry, ExecuteResponse, Listing, Review, ReviewCoverageSnapshot } from "@/lib/types";
 
 type DemoListing = Listing & {
   recentReviews: Review[];
@@ -56,6 +56,14 @@ type TraceSummary = {
   decision?: string;
   status?: string;
 };
+
+function createDemoSessionId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 const defaultPrompt =
   "Hi, I manage several Airbnb listings in Lisbon. For the selected listing, autonomously review the listing page against guest reviews and nearby context. If you find an evidence-backed improvement, update the simulated page end to end and explain what changed.";
@@ -96,6 +104,7 @@ function promptExamples(listingName: string) {
 }
 
 export function DemoDashboard({ initialListings, listingOptions, totalDatasetListings }: Props) {
+  const [demoSessionId] = useState(() => createDemoSessionId());
   const [listings, setListings] = useState(initialListings);
   const [selectedId, setSelectedId] = useState(initialListings[0]?.id ?? listingOptions[0]?.id ?? "");
   const [prompt, setPrompt] = useState(defaultPrompt);
@@ -104,6 +113,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
   const [isLoadingListing, setIsLoadingListing] = useState(false);
   const [simulatedDescriptions, setSimulatedDescriptions] = useState<Record<string, string>>({});
   const [latestAuditLog, setLatestAuditLog] = useState<AuditLogEntry | null>(null);
+  const [reviewCoverageState, setReviewCoverageState] = useState<ReviewCoverageSnapshot>({});
   const [visibleReviews, setVisibleReviews] = useState<Record<string, number>>({});
 
   const selectedListing = useMemo(
@@ -155,7 +165,10 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         },
         signal: controller.signal,
         body: JSON.stringify({
-          prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`
+          prompt: `Selected listing id: ${selectedListing.id}\n${prompt}`,
+          current_page_description: currentDescription,
+          review_coverage_state: reviewCoverageState,
+          session_id: demoSessionId
         })
       });
 
@@ -163,10 +176,16 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
         status: "error",
         error: `The agent returned HTTP ${response.status}, but the response body was not valid JSON.`,
         response: null,
-        steps: []
+        steps: [],
+        page_update: null,
+        portfolio_update: null,
+        audit_log: null
       }))) as ExecuteResponse;
 
       setResult(payload);
+      if (payload.review_coverage_state) {
+        setReviewCoverageState(payload.review_coverage_state);
+      }
       await refreshListingPage(selectedListing.id);
       await refreshLatestAuditLog(selectedListing.id);
     } catch (error) {
@@ -179,7 +198,10 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
             ? error.message
             : "The agent request failed before a response was received.",
         response: null,
-        steps: []
+        steps: [],
+        page_update: null,
+        portfolio_update: null,
+        audit_log: null
       });
     } finally {
       window.clearTimeout(timeoutId);
@@ -197,7 +219,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ listing_id: selectedListing.id })
+      body: JSON.stringify({ listing_id: selectedListing.id, session_id: demoSessionId })
     });
 
     setSimulatedDescriptions((current) => ({
@@ -206,6 +228,7 @@ export function DemoDashboard({ initialListings, listingOptions, totalDatasetLis
     }));
     setResult(null);
     setLatestAuditLog(null);
+    setReviewCoverageState({});
   }
 
   async function refreshListingPage(listingId: string) {
@@ -711,12 +734,12 @@ function AgentResult({ result, auditLog }: { result: ExecuteResponse; auditLog: 
       ) : null}
 
       <div className="stepList">
-        <h4>LLM Steps Trace</h4>
-        {result.steps.length === 0 ? (
-          <div className="emptyState">
-            No LLM calls were made for this run. In mock or deterministic guard paths, the public API correctly returns an empty steps array.
-          </div>
-        ) : null}
+          <h4>Action Trace</h4>
+          {result.steps.length === 0 ? (
+            <div className="emptyState">
+              No runtime actions were recorded for this run.
+            </div>
+          ) : null}
         {result.steps.map((step, index) => {
           const summary = summarizeTraceStep(step);
 
