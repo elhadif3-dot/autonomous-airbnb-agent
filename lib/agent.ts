@@ -2264,9 +2264,7 @@ function reviseDescriptionForEvidenceBackedGaps(
     return null;
   }
 
-  const selectedTopics = signals.map((signal) => signal.topic);
-  const staleTopics = staleGeneratedTopicsForReplacement(selectedTopics);
-  let revised = removeRejectedTopicText(currentDescription, [...rejectedTopics, ...staleTopics]);
+  let revised = removeRejectedTopicText(currentDescription, rejectedTopics);
   if (signals.some((signal) => signal.topic === "Noise expectations")) {
     revised = revised
       .replace(/\bvery calm area\b/gi, "central Lisbon area")
@@ -2383,24 +2381,6 @@ function removeRejectedTopicText(description: string, rejectedTopics: string[]):
     .filter(Boolean);
 
   return paragraphs.join("\n\n").trim() || description;
-}
-
-function staleGeneratedTopicsForReplacement(selectedTopics: string[]): string[] {
-  const stale: string[] = [];
-
-  if (!selectedTopics.some((topic) => topic === "Rated nearby guest options" || topic === "Rated nearby dining options")) {
-    stale.push("Rated nearby guest options", "Rated nearby dining options");
-  }
-
-  if (!selectedTopics.includes("Noise expectations")) {
-    stale.push("Noise expectations");
-  }
-
-  if (!selectedTopics.includes("Historic Lisbon hills")) {
-    stale.push("Historic Lisbon hills");
-  }
-
-  return stale;
 }
 
 function sentenceSplit(paragraph: string): string[] {
