@@ -110,7 +110,7 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
     if (
       currentDescription &&
       proposal.proposed_description_replacement &&
-      !allowsProtectedNearbyFactCleanup(state) &&
+      !allowsProtectedNearbyFactCleanup(currentDescription, proposal.proposed_description_replacement, state) &&
       !preservesProtectedFacts(currentDescription, proposal.proposed_description_replacement)
     ) {
       violations.push("protected_fact_removed_or_changed");
@@ -123,11 +123,19 @@ export function validateProposal(proposal: EditProposal, state?: EvidenceState):
   };
 }
 
-function allowsProtectedNearbyFactCleanup(state?: EvidenceState): boolean {
+function allowsProtectedNearbyFactCleanup(before: string, after: string, state?: EvidenceState): boolean {
+  const beforeGeneratedNearbyText = /google places context supports|nearby highlights include|nearby options such as|nearby dining options/i.test(
+    before
+  );
+  const afterKeepsGeneratedNearbyText = /google places context supports|nearby highlights include|nearby options such as|nearby dining options/i.test(
+    after
+  );
+
   return Boolean(
     state?.rejectedTopics?.some(
       (topic) => topic === "Rated nearby guest options" || topic === "Rated nearby dining options"
-    )
+    ) ||
+      (beforeGeneratedNearbyText && !afterKeepsGeneratedNearbyText)
   );
 }
 

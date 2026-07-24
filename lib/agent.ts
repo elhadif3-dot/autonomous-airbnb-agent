@@ -745,7 +745,7 @@ function chooseNextAction(state: AgentState): AgentNextAction {
     return action("submit_to_supervisor", { listing_id: state.listingId }, "All page updates require Supervisor / Control Agent review.", "Supervisor decision is missing.");
   }
 
-  if (state.supervisor.decision === "Revise" && state.reviseCount < 1) {
+  if (state.supervisor.decision === "Revise" && state.reviseCount < 2) {
     return action("replan", { required_change: state.supervisor.required_change }, "Supervisor requested a narrower or better evidenced action.", "Replanning after Supervisor revision.");
   }
 
@@ -2046,6 +2046,13 @@ function topicsRejectedBySupervisor(
     rejected.push("Historic Lisbon hills");
   }
 
+  if (
+    proposal.evidence_topics?.includes("Temperature expectations") &&
+    /temperature|cooling|fan|cooler|warmer lisbon|broader claim/.test(supervisorText)
+  ) {
+    rejected.push("Temperature expectations");
+  }
+
   return rejected;
 }
 
@@ -2165,7 +2172,7 @@ function draftEdit(
       return "This stay suits guests who enjoy being close to Lisbon's lively center; as in many central neighborhoods, some street activity may be part of the experience.";
     }
     if (signal.topic === "Temperature expectations") {
-      return "During warmer Lisbon periods, guests who prefer cooler rooms may want to plan accordingly; this note helps set the right comfort expectations before booking.";
+      return "Some guests mention cooling or fan expectations, so guests who prefer a cooler room may want to check the setup before booking.";
     }
     if (signal.topic === "Space expectations") {
       return "The space is best for travelers who value a smart central base over extra room, with guest reviews pointing to location and convenience as the main strengths.";
@@ -2257,7 +2264,9 @@ function reviseDescriptionForEvidenceBackedGaps(
     return null;
   }
 
-  let revised = removeRejectedTopicText(currentDescription, rejectedTopics);
+  const selectedTopics = signals.map((signal) => signal.topic);
+  const staleTopics = staleGeneratedTopicsForReplacement(selectedTopics);
+  let revised = removeRejectedTopicText(currentDescription, [...rejectedTopics, ...staleTopics]);
   if (signals.some((signal) => signal.topic === "Noise expectations")) {
     revised = revised
       .replace(/\bvery calm area\b/gi, "central Lisbon area")
@@ -2283,6 +2292,7 @@ function removeRejectedTopicText(description: string, rejectedTopics: string[]):
   const rejectRemoteWork = rejectedTopics.includes("Remote-work readiness");
   const rejectNoise = rejectedTopics.includes("Noise expectations");
   const rejectHills = rejectedTopics.includes("Historic Lisbon hills");
+  const rejectTemperature = rejectedTopics.includes("Temperature expectations");
 
   let cleaned = description;
 
@@ -2355,12 +2365,42 @@ function removeRejectedTopicText(description: string, rejectedTopics: string[]):
         return false;
       }
 
+      if (
+        rejectTemperature &&
+        includesAnyNormalized(normalized, [
+          "warmer lisbon periods",
+          "prefer cooler rooms",
+          "cooling or fan expectations",
+          "temperature comfort appears"
+        ])
+      ) {
+        return false;
+      }
+
       return true;
     }).join(" "))
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
 
   return paragraphs.join("\n\n").trim() || description;
+}
+
+function staleGeneratedTopicsForReplacement(selectedTopics: string[]): string[] {
+  const stale: string[] = [];
+
+  if (!selectedTopics.some((topic) => topic === "Rated nearby guest options" || topic === "Rated nearby dining options")) {
+    stale.push("Rated nearby guest options", "Rated nearby dining options");
+  }
+
+  if (!selectedTopics.includes("Noise expectations")) {
+    stale.push("Noise expectations");
+  }
+
+  if (!selectedTopics.includes("Historic Lisbon hills")) {
+    stale.push("Historic Lisbon hills");
+  }
+
+  return stale;
 }
 
 function sentenceSplit(paragraph: string): string[] {
@@ -2376,6 +2416,7 @@ function polishDescriptionCopy(description: string): string {
   return description
     .replace(/<br\s*\/?>/gi, " ")
     .replace(/\betc\.\.\.?/gi, "and more.")
+    .replace(/\b(\d+)\s+Google reviews\b/gi, "$1 Google review texts in the dataset")
     .replace(/\ba couple of meters\b/gi, "just a few meters")
     .replace(/\bby foot\b/gi, "on foot")
     .replace(/\ball the major city charms\b/gi, "many of Lisbon's main highlights")
