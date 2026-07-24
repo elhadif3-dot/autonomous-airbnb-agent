@@ -302,7 +302,15 @@ function appendIfMissing(description: string, addition: string): string {
     return description;
   }
 
-  return `${description}\n\n${addition}`;
+  const missingSentences = splitSentences(addition).filter(
+    (sentence) => !textAlreadyContainsSentence(description, sentence)
+  );
+
+  if (missingSentences.length === 0) {
+    return description;
+  }
+
+  return `${description.trim()}\n\n${missingSentences.join(" ")}`.trim();
 }
 
 function normalizedText(value: string): string {
@@ -311,4 +319,63 @@ function normalizedText(value: string): string {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => paragraph.split(/(?<=[.!?])\s+(?=[A-Z])/))
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function textAlreadyContainsSentence(description: string, sentence: string): boolean {
+  const normalizedSentence = normalizedText(sentence);
+  if (!normalizedSentence) {
+    return true;
+  }
+
+  const normalizedDescription = normalizedText(description);
+  if (normalizedDescription.includes(normalizedSentence)) {
+    return true;
+  }
+
+  return splitSentences(description).some((existing) => sentenceSimilarity(existing, sentence) >= 0.84);
+}
+
+function sentenceSimilarity(first: string, second: string): number {
+  const firstTokens = contentTokens(first);
+  const secondTokens = contentTokens(second);
+  if (firstTokens.size === 0 || secondTokens.size === 0) {
+    return 0;
+  }
+
+  const intersection = [...firstTokens].filter((token) => secondTokens.has(token)).length;
+  return intersection / Math.max(firstTokens.size, secondTokens.size);
+}
+
+function contentTokens(value: string): Set<string> {
+  const stopwords = new Set([
+    "the",
+    "and",
+    "with",
+    "that",
+    "this",
+    "from",
+    "into",
+    "only",
+    "when",
+    "guest",
+    "guests",
+    "review",
+    "reviews",
+    "listing",
+    "stay"
+  ]);
+
+  return new Set(
+    normalizedText(value)
+      .split(" ")
+      .filter((token) => token.length > 2 && !stopwords.has(token))
+  );
 }

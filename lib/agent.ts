@@ -2150,11 +2150,19 @@ function draftEdit(
   if (nearbyPlacesOnly) {
     const places = uniqueFormattedGooglePlaces(selectedSignals.flatMap((signal) => signal.evidence)).slice(0, 4);
     if (places.length > 0) {
+      const proposedAddition = `Nearby highlights include ${places.join(", ")}, giving guests strong nearby options within the requested area.`;
+      if (normalizeTextForCoverage(appendTextIfMissing(currentDescription, proposedAddition)) === normalizeTextForCoverage(currentDescription)) {
+        return stopProposal(
+          listing.id,
+          `${coverageProgressSentence(reviewStats)}The current simulated description already includes the strongest nearby-place text for the requested radius.${coverageContinuationSentence(reviewStats)}`
+        );
+      }
+
       return {
         action: "prepare_edit_proposal",
         target_fields: ["description"],
         listing_id: listing.id,
-        proposed_description_addition: `Nearby highlights include ${places.join(", ")}, giving guests strong nearby options within the requested area.`,
+        proposed_description_addition: proposedAddition,
         proposed_description_replacement: null,
         evidence_topics: selectedSignals.map((signal) => signal.topic)
       };
@@ -2222,6 +2230,15 @@ function draftEdit(
     };
   }
 
+  if (normalizeTextForCoverage(appendTextIfMissing(currentDescription, proposedAddition)) === normalizeTextForCoverage(currentDescription)) {
+    return stopProposal(
+      listing.id,
+      `${coverageProgressSentence(reviewStats)}The current simulated description already covers the strongest supported topics in this review window: ${selectedSignals
+        .map((signal) => signal.topic)
+        .join(", ")}.${coverageContinuationSentence(reviewStats)}`
+    );
+  }
+
   return {
     action: "prepare_edit_proposal",
     target_fields: ["description"],
@@ -2274,9 +2291,9 @@ function reviseDescriptionForEvidenceBackedGaps(
       .replace(/\bquiet\b/gi, "central");
   }
 
-  revised = polishDescriptionCopy(revised);
+  revised = dedupeRepeatedSentences(polishDescriptionCopy(revised));
   revised = appendTextIfMissing(revised, proposedAddition);
-  return revised;
+  return dedupeRepeatedSentences(revised);
 }
 
 function removeRejectedTopicText(description: string, rejectedTopics: string[]): string {
@@ -2421,11 +2438,20 @@ function appendTextIfMissing(description: string, addition: string): string {
     return description;
   }
 
-  if (normalizeTextForCoverage(description).includes(normalizeTextForCoverage(addition))) {
+  const normalizedDescription = normalizeTextForCoverage(description);
+  if (normalizedDescription.includes(normalizeTextForCoverage(addition))) {
     return description;
   }
 
-  return `${description.trim()}\n\n${addition.trim()}`;
+  const missingSentences = splitGeneratedSentences(addition).filter(
+    (sentence) => !textAlreadyContainsSentence(description, sentence)
+  );
+
+  if (missingSentences.length === 0) {
+    return description;
+  }
+
+  return `${description.trim()}\n\n${missingSentences.join(" ")}`.trim();
 }
 
 function coverageProgressSentence(stats?: ReviewSearchStats): string {
@@ -2462,16 +2488,43 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
     return includesAny(["lively center", "street activity", "busy central", "part of the experience", "noise expectations"]);
   }
   if (topic === "Temperature expectations") {
-    return includesAny(["warmer lisbon", "cooler rooms", "temperature expectations", "plan accordingly"]);
+    return includesAny([
+      "warmer lisbon",
+      "cooler room",
+      "cooler rooms",
+      "cooling or fan expectations",
+      "fan expectations",
+      "prefer a cooler room",
+      "temperature expectations",
+      "temperature comfort",
+      "check the setup before booking",
+      "plan accordingly"
+    ]);
   }
   if (topic === "Space expectations") {
-    return includesAny(["smart central base over extra room", "compact", "space is best", "value a smart central base"]);
+    return includesAny([
+      "smart central base over extra room",
+      "extra room",
+      "compact",
+      "space is best",
+      "value a smart central base",
+      "room was small",
+      "rooms are small",
+      "space expectations"
+    ]);
   }
   if (topic === "Guest-confirmed walkable location") {
-    return includesAny(["guests consistently highlight the walkable", "walkable central location", "guest confirmed walkable", "easy to reach lisbon"]);
+    return includesAny([
+      "guests consistently highlight the walkable",
+      "walkable central location",
+      "guest confirmed walkable",
+      "easy to reach lisbon",
+      "reviews pointing to location and convenience",
+      "location and convenience as the main strengths"
+    ]);
   }
   if (topic === "Guest-mentioned view") {
-    return includesAny(["guest mentioned highlights", "view is one", "lisbon backdrop"]);
+    return includesAny(["guest mentioned highlights", "view is one", "lisbon backdrop", "guest backed note about the view"]);
   }
   if (topic === "Guest-confirmed cleanliness") {
     return includesAny(["clean and well kept", "reviews repeatedly describe", "guest confirmed cleanliness"]);
@@ -2480,13 +2533,115 @@ function descriptionAlreadyCoversSignal(description: string, topic: string): boo
     return includesAny(["comfortable stay", "good sleep experience", "guest confirmed comfort"]);
   }
   if (topic === "Remote-work readiness") {
-    return includesAny(["remote work setup", "mixing travel with work", "wi fi work setup"]);
+    return includesAny(["remote work setup", "mixing travel with work", "wi fi work setup", "connectivity", "wi fi is listed"]);
   }
   if (topic === "Rated nearby guest options" || topic === "Rated nearby dining options") {
-    return includesAny(["highly rated nearby", "google reviews", "nearby dining options", "nearby options such as"]);
+    return includesAny([
+      "highly rated nearby",
+      "google reviews",
+      "google review texts in the dataset",
+      "google places context supports",
+      "nearby dining options",
+      "nearby options such as",
+      "nearby highlights include",
+      "places to eat"
+    ]);
   }
 
   return false;
+}
+
+function splitGeneratedSentences(text: string): string[] {
+  return text
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => paragraph.split(/(?<=[.!?])\s+(?=[A-Z])/))
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function textAlreadyContainsSentence(description: string, sentence: string): boolean {
+  const normalizedSentence = normalizeTextForCoverage(sentence);
+  if (!normalizedSentence) {
+    return true;
+  }
+
+  const normalizedDescription = normalizeTextForCoverage(description);
+  if (normalizedDescription.includes(normalizedSentence)) {
+    return true;
+  }
+
+  return splitGeneratedSentences(description).some(
+    (existing) => sentenceSimilarity(existing, sentence) >= 0.84
+  );
+}
+
+function dedupeRepeatedSentences(text: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((paragraph) => splitGeneratedSentences(paragraph))
+    .filter((sentences) => sentences.length > 0);
+  const kept: string[][] = [];
+  const seen: string[] = [];
+
+  for (const paragraph of paragraphs) {
+    const paragraphSentences: string[] = [];
+    for (const sentence of paragraph) {
+      const normalized = normalizeTextForCoverage(sentence);
+      if (
+        !normalized ||
+        seen.includes(normalized) ||
+        seen.some((existing) => sentenceSimilarity(existing, normalized) >= 0.92)
+      ) {
+        continue;
+      }
+
+      seen.push(normalized);
+      paragraphSentences.push(sentence);
+    }
+
+    if (paragraphSentences.length > 0) {
+      kept.push(paragraphSentences);
+    }
+  }
+
+  return kept.map((sentences) => sentences.join(" ")).join("\n\n").trim() || text.trim();
+}
+
+function sentenceSimilarity(first: string, second: string): number {
+  const firstTokens = contentTokens(first);
+  const secondTokens = contentTokens(second);
+  if (firstTokens.size === 0 || secondTokens.size === 0) {
+    return 0;
+  }
+
+  const intersection = [...firstTokens].filter((token) => secondTokens.has(token)).length;
+  return intersection / Math.max(firstTokens.size, secondTokens.size);
+}
+
+function contentTokens(value: string): Set<string> {
+  const stopwords = new Set([
+    "the",
+    "and",
+    "with",
+    "that",
+    "this",
+    "from",
+    "into",
+    "only",
+    "when",
+    "guest",
+    "guests",
+    "review",
+    "reviews",
+    "listing",
+    "stay"
+  ]);
+
+  return new Set(
+    normalizeTextForCoverage(value)
+      .split(" ")
+      .filter((token) => token.length > 2 && !stopwords.has(token))
+  );
 }
 
 function normalizeTextForCoverage(value: string): string {
